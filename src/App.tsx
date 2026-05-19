@@ -6,7 +6,6 @@ import type {
   WorkerStatus,
 } from './types';
 import type { PIIRegion } from './schema';
-import './App.css';
 
 type LoadProgress = {
   file?: string;

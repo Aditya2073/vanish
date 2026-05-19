@@ -1,0 +1,44 @@
+/*
+ * Design tokens — verbatim from design/Vanish.html :root.
+ * Tailwind utilities reference these via var(--token) names.
+ */
+:root {
+  --bg: #0E0F10;
+  --page-bg: #0A0B0C;
+  --surface-1: #16181B;
+  --surface-2: #1E2125;
+  --border: #2A2E33;
+  --border-strong: #3A3F45;
+  --text-1: #F2F3F5;
+  --text-2: #9BA1A8;
+  --text-3: #5C636B;
+  --lime: #C6F432;
+  --lime-ink: #0A0B0C;
+
+  --cat-email: #5B9DFF;
+  --cat-phone: #FF8A4C;
+  --cat-name:  #C58FFF;
+  --cat-addr:  #FFD24C;
+  --cat-acct:  #FF5C7C;
+  --cat-bal:   #4CE0B5;
+  --cat-key:   #FF3B6B;
+  --cat-jwt:   #FF3B6B;
+  --cat-ip:    #7DD3FC;
+  --cat-cust:  #A78BFA;
+  --cat-face:  #FBBF24;
+  --cat-sec:   #FF3B6B;
+}
+
+.light {
+  --bg: #FAFAF7;
+  --page-bg: #F1F1ED;
+  --surface-1: #FFFFFF;
+  --surface-2: #F4F4F0;
+  --border: #E5E7E8;
+  --border-strong: #C8CBCE;
+  --text-1: #1A1A1A;
+  --text-2: #545A60;
+  --text-3: #8B9098;
+  --lime: #C6F432;
+  --lime-ink: #0A0B0C;
+}
