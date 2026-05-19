@@ -21,7 +21,7 @@ import { mergeRegions } from '../merge';
 import { runOCR } from '../ocr';
 
 const MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
-const VISION_TOKEN_BUDGET = 140;
+const VISION_TOKEN_BUDGET = 256;
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
