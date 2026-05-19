@@ -150,7 +150,10 @@ async function handleGenerate(req: Extract<WorkerInbound, { type: 'GENERATE' }>)
   let modelParseError: string | undefined;
   if (rawModelText) {
     try {
-      modelRegions = parseModelResponse(rawModelText);
+      modelRegions = parseModelResponse(rawModelText, {
+        width: canvas.width,
+        height: canvas.height,
+      });
     } catch (err) {
       modelParseError =
         err instanceof ModelOutputParseError

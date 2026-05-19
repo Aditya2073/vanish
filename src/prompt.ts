@@ -5,16 +5,20 @@ import type { PIIRegion } from './schema';
 export const PII_SYSTEM_PROMPT = `You are a PII detector for screenshots. Return ONLY one JSON object with this shape:
 {"regions":[{"category":"email","bbox":{"x":0.12,"y":0.34,"w":0.20,"h":0.04},"text":"alice@example.com","confidence":0.95,"replacement":"[email]"}]}
 
-Every region MUST include all five keys: category, bbox, text, confidence, replacement. Coordinates are normalized 0..1 of image width and height with origin top-left. confidence is 0..1. "text" is the literal visible text inside the bbox, truncated to at most 80 characters. "replacement" is a short drop-in redaction like "[email]" or "[phone]".
+Every region MUST include all five keys: category, bbox, text, confidence, replacement.
+
+Coordinates: bbox.x, bbox.y, bbox.w, bbox.h MUST be numbers between 0 and 1 (a fraction of the image width or height). Origin is top-left. DO NOT return pixel values. If the image is 800 pixels tall and the region starts halfway down, bbox.y is 0.5, NOT 400.
+
+"text" is the literal visible text inside the bbox, max 80 characters. "replacement" is a short drop-in redaction like "[email]" or "[phone]". "confidence" is between 0 and 1.
 
 If no PII is present, return exactly: {"regions":[]}
 
-Categories (use the strings verbatim):
+Categories (use these strings VERBATIM; do not invent new ones like "state", "postal_code", "address_line"):
 - email: an email address.
 - phone: a phone number, US or international.
 - person_name: a real person's first and/or last name.
-- street_address: a postal or street address.
-- account_number: a digit sequence (6+) acting as a bank, customer, or order id.
+- street_address: any postal address line, including state, ZIP/postal code, and country when shown together with the address. Emit ONE region covering the visible address block, not separate regions per field.
+- account_number: a digit sequence (6+) acting as a bank, customer, or order id. Use this for card-last-4 ("4242"), account numbers, and order numbers.
 - balance: a currency amount tied to a person or account.
 - api_key: an API key, access token, secret, or credential string (e.g. AKIA..., ghp_..., sk_live_...).
 - jwt: a JSON Web Token (three base64 segments separated by dots, usually starting with "eyJ").
@@ -23,20 +27,24 @@ Categories (use the strings verbatim):
 - face: a visible human face.
 - free_text_secret: any other clearly sensitive text not covered above.
 
-NOT PII — do not emit regions for these even if they look "code-like":
+NOT PII — return zero regions for screenshots that only show these:
 - Source code, function names, variable names, type annotations, language keywords.
-- UI chrome: button labels, menu items, breadcrumbs, tab titles, file paths, app names.
-- Field labels themselves (e.g. the word "Email", "Name", "Address" without a value).
-- Generic placeholders, currency symbols alone, or empty form fields.
+- File names, file extensions (.ts, .js, .py, .md, etc.), file paths, folder names.
+- Code editor chrome: tab titles, breadcrumbs, sidebar items, status bar, line numbers, menu bar.
+- App chrome: button labels, menu items, dialog titles, app names, logos.
+- Field labels themselves (the word "Email", "Name", "Address" without a value).
+- Generic placeholders, country names alone, currency symbols alone, empty form fields.
 
-Worked example. Input image shows the text:
+Worked example A. Image shows a profile form with text:
   Name: Alex Kumar
   Email: alex@acme.io
   Update profile
-Expected output:
+Output:
 {"regions":[{"category":"person_name","bbox":{"x":0.20,"y":0.10,"w":0.18,"h":0.04},"text":"Alex Kumar","confidence":0.96,"replacement":"[name]"},{"category":"email","bbox":{"x":0.20,"y":0.18,"w":0.22,"h":0.04},"text":"alex@acme.io","confidence":0.95,"replacement":"[email]"}]}
 
-Note: "Name:", "Email:", and "Update profile" produced no regions because they are labels and UI chrome, not PII.
+Worked example B. Image shows a VS Code window with a TypeScript file open, tab "formatter.ts", function definitions visible.
+Output:
+{"regions":[]}
 
 Output ONLY the JSON object. No prose. No markdown fences.`;
 
@@ -101,21 +109,31 @@ export function extractJSONObject(raw: string): string {
   throw new ModelOutputParseError('Unmatched braces in model output', raw);
 }
 
-// Lenient schema applied to the MODEL's output specifically. Gemma 4 sometimes
-// drops `replacement` or `confidence`; we normalize those into the canonical
-// PIIRegion shape below instead of failing the whole pipeline.
-const ModelPIIRegion = z.object({
-  category: PIICategory,
-  bbox: Bbox,
+// Lenient parsing schema for the MODEL's output. category is intentionally
+// `string` so that a single invented category ("state", "postal_code") only
+// drops that one region instead of failing the whole array. Coordinates also
+// accept numbers > 1 here so pixel-leaks survive parsing and get fixed up by
+// renormalizeBbox below.
+const LooseBbox = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+const LooseModelPIIRegion = z.object({
+  category: z.string(),
+  bbox: LooseBbox,
   text: z.string().optional(),
   confidence: z.number().optional(),
   replacement: z.string().optional(),
 });
-const ModelPIIResponse = z.object({
-  regions: z.array(ModelPIIRegion),
+const LooseModelPIIResponse = z.object({
+  regions: z.array(LooseModelPIIRegion),
 });
 
-const DEFAULT_REPLACEMENT: Record<z.infer<typeof PIICategory>, string> = {
+const VALID_CATEGORIES = new Set<PIIRegion['category']>(PIICategory.options);
+
+const DEFAULT_REPLACEMENT: Record<PIIRegion['category'], string> = {
   email: '[email]',
   phone: '[phone]',
   person_name: '[name]',
@@ -135,7 +153,34 @@ function clamp01(n: number | undefined, fallback: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-export function parseModelResponse(raw: string): PIIRegion[] {
+// If any single bbox coordinate looks like a pixel value (> 1), divide it by
+// the matching image dimension. We've seen Gemma 4 mix pixel y with normalized
+// x/w/h on the same region, so each coord is checked independently.
+function renormalizeBbox(
+  bbox: z.infer<typeof LooseBbox>,
+  dims: { width: number; height: number } | undefined,
+): z.infer<typeof Bbox> {
+  if (!dims) {
+    return {
+      x: clamp01(bbox.x, 0),
+      y: clamp01(bbox.y, 0),
+      w: clamp01(bbox.w, 0),
+      h: clamp01(bbox.h, 0),
+    };
+  }
+  const fix = (v: number, dim: number) => (v > 1 ? v / dim : v);
+  return {
+    x: clamp01(fix(bbox.x, dims.width), 0),
+    y: clamp01(fix(bbox.y, dims.height), 0),
+    w: clamp01(fix(bbox.w, dims.width), 0),
+    h: clamp01(fix(bbox.h, dims.height), 0),
+  };
+}
+
+export function parseModelResponse(
+  raw: string,
+  imageDims?: { width: number; height: number },
+): PIIRegion[] {
   if (!raw.trim()) return [];
   const jsonText = extractJSONObject(raw);
 
@@ -149,7 +194,7 @@ export function parseModelResponse(raw: string): PIIRegion[] {
     );
   }
 
-  const result = ModelPIIResponse.safeParse(parsed);
+  const result = LooseModelPIIResponse.safeParse(parsed);
   if (!result.success) {
     throw new ModelOutputParseError(
       `Schema validation failed: ${result.error.message}`,
@@ -157,11 +202,17 @@ export function parseModelResponse(raw: string): PIIRegion[] {
     );
   }
 
-  return result.data.regions.map<PIIRegion>((r) => ({
-    category: r.category,
-    bbox: r.bbox,
-    text: r.text,
-    confidence: clamp01(r.confidence, 0.8),
-    replacement: r.replacement?.trim() || DEFAULT_REPLACEMENT[r.category],
-  }));
+  const out: PIIRegion[] = [];
+  for (const r of result.data.regions) {
+    if (!VALID_CATEGORIES.has(r.category as PIIRegion['category'])) continue;
+    const category = r.category as PIIRegion['category'];
+    out.push({
+      category,
+      bbox: renormalizeBbox(r.bbox, imageDims),
+      text: r.text,
+      confidence: clamp01(r.confidence, 0.8),
+      replacement: r.replacement?.trim() || DEFAULT_REPLACEMENT[category],
+    });
+  }
+  return out;
 }
