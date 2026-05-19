@@ -1,0 +1,1625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vanish — design spec</title>
+<meta name="viewport" content="width=1520" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ---------- Tokens ---------- */
+  :root {
+    --bg: #0E0F10;
+    --page-bg: #0A0B0C;
+    --surface-1: #16181B;
+    --surface-2: #1E2125;
+    --border: #2A2E33;
+    --border-strong: #3A3F45;
+    --text-1: #F2F3F5;
+    --text-2: #9BA1A8;
+    --text-3: #5C636B;
+    --lime: #C6F432;
+    --lime-ink: #0A0B0C;
+
+    --cat-email: #5B9DFF;
+    --cat-phone: #FF8A4C;
+    --cat-name:  #C58FFF;
+    --cat-addr:  #FFD24C;
+    --cat-acct:  #FF5C7C;
+    --cat-bal:   #4CE0B5;
+    --cat-key:   #FF3B6B;
+    --cat-jwt:   #FF3B6B;
+    --cat-ip:    #7DD3FC;
+    --cat-cust:  #A78BFA;
+    --cat-face:  #FBBF24;
+    --cat-sec:   #FF3B6B;
+
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .light {
+    --bg: #FAFAF7;
+    --page-bg: #F1F1ED;
+    --surface-1: #FFFFFF;
+    --surface-2: #F4F4F0;
+    --border: #E5E7E8;
+    --border-strong: #C8CBCE;
+    --text-1: #1A1A1A;
+    --text-2: #545A60;
+    --text-3: #8B9098;
+    --lime: #C6F432;
+    --lime-ink: #0A0B0C;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page-bg);
+    color: var(--text-1);
+    font-family: var(--sans);
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    padding: 56px 40px 80px;
+  }
+
+  /* ---------- Page chrome ---------- */
+  .page {
+    max-width: 1520px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 64px;
+  }
+
+  .mock-header {
+    font: 500 11px/1 var(--sans);
+    color: var(--text-3);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 0 4px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .mock-header::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border) 0%, transparent 100%);
+  }
+  .mock-header .meta { color: var(--text-3); letter-spacing: 0.06em; font-family: var(--mono); font-weight: 400; }
+
+  .frame {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ---------- App chrome (top + bottom bars) ---------- */
+  .app {
+    display: grid;
+    grid-template-rows: 48px 1fr 56px;
+    height: 900px;
+    width: 1440px;
+    margin: 0 auto;
+    background: var(--bg);
+  }
+  .app.app-light { background: var(--bg); }
+
+  .topbar {
+    height: 48px;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 220px 1fr auto;
+    align-items: center;
+    padding: 0 16px 0 20px;
+    background: var(--bg);
+    position: relative;
+  }
+  .wordmark {
+    font: 600 22px/1 var(--mono);
+    letter-spacing: -0.04em;
+    color: var(--text-1);
+  }
+  .wordmark .dim { color: var(--text-3); font-weight: 500; }
+
+  .crumb {
+    font: 400 12px/1 var(--mono);
+    color: var(--text-2);
+    letter-spacing: 0;
+    padding-left: 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .crumb .sep { color: var(--text-3); }
+  .crumb .dim { color: var(--text-3); }
+
+  .top-right { display: flex; align-items: center; gap: 16px; }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 28px;
+    padding: 0 12px 0 10px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    border-radius: 999px;
+  }
+  .status-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 0 3px rgba(198,244,50,0.10);
+  }
+  .status-pill .label { font: 500 12px/1 var(--sans); color: var(--text-1); }
+  .status-pill .model { font: 400 11px/1 var(--mono); color: var(--text-3); letter-spacing: 0; }
+  .privacy-link { font: 500 12px/1 var(--sans); color: var(--text-2); text-decoration: none; }
+
+  /* the scan-line indicator — dormant */
+  .scanline {
+    position: absolute;
+    top: 0; left: 12px;
+    height: 1px;
+    width: 24px;
+    background: var(--lime);
+    opacity: 0.30;
+  }
+
+  /* ---------- Main grid ---------- */
+  .main {
+    display: grid;
+    grid-template-columns: 220px 1fr 280px;
+    min-height: 0;
+  }
+  .rail {
+    border-right: 1px solid var(--border);
+    background: var(--surface-1);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .canvas-wrap {
+    background: var(--surface-1);
+    position: relative;
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+  }
+  .detail {
+    background: var(--surface-1);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* ---------- Category rail ---------- */
+  .rail-section { padding: 16px 14px 10px; }
+  .rail-title {
+    font: 500 11px/1 var(--sans);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    padding: 6px 6px 12px;
+  }
+  .cat-list { display: flex; flex-direction: column; gap: 2px; padding: 0 6px; }
+  .cat-row {
+    display: grid;
+    grid-template-columns: 14px 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    padding: 0 8px;
+    border-radius: 4px;
+    cursor: default;
+  }
+  .cat-row.active { background: var(--surface-2); }
+  .cat-row:hover { background: var(--surface-2); }
+  .swatch {
+    width: 10px; height: 10px; border-radius: 2px;
+    background: currentColor;
+  }
+  .cat-label { font: 500 13px/1 var(--sans); color: var(--text-1); }
+  .count {
+    font: 500 11px/1 var(--mono);
+    color: var(--text-2);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    padding: 3px 7px;
+    border-radius: 999px;
+    min-width: 22px;
+    text-align: center;
+  }
+  .cat-row.active .count { background: var(--bg); }
+
+  /* Switch */
+  .toggle {
+    width: 28px; height: 16px; border-radius: 999px;
+    background: var(--border-strong);
+    position: relative;
+    transition: background .12s ease;
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--text-1);
+    transition: left .12s ease;
+  }
+  .toggle.on { background: var(--lime); }
+  .toggle.on::after { left: 14px; background: var(--lime-ink); }
+
+  .rail-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 14px 14px 0;
+  }
+  .rail-add {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    color: var(--text-2);
+    font: 500 13px/1 var(--sans);
+  }
+  .rail-add svg { color: var(--text-2); }
+
+  .rail-footer {
+    margin-top: auto;
+    padding: 14px 20px 16px;
+    font: 400 11px/1.3 var(--mono);
+    color: var(--text-3);
+    border-top: 1px solid var(--border);
+  }
+
+  /* ---------- Canvas ---------- */
+  .canvas {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at center, var(--surface-2) 0.6px, transparent 0.6px) 0 0 / 24px 24px,
+      var(--surface-1);
+    /* dotted grid */
+  }
+
+  /* Corner crosshairs */
+  .crosshair { position: absolute; width: 12px; height: 12px; pointer-events: none; opacity: 0.40; }
+  .crosshair::before, .crosshair::after { content: ""; position: absolute; background: var(--lime); }
+  .crosshair::before { width: 12px; height: 1px; }
+  .crosshair::after { width: 1px; height: 12px; }
+  .crosshair.tl { top: 14px; left: 14px; }
+  .crosshair.tl::before { top: 0; left: 0; }
+  .crosshair.tl::after  { top: 0; left: 0; }
+  .crosshair.tr { top: 14px; right: 14px; }
+  .crosshair.tr::before { top: 0; right: 0; }
+  .crosshair.tr::after  { top: 0; right: 0; }
+  .crosshair.bl { bottom: 14px; left: 14px; }
+  .crosshair.bl::before { bottom: 0; left: 0; }
+  .crosshair.bl::after  { bottom: 0; left: 0; }
+  .crosshair.br { bottom: 14px; right: 14px; }
+  .crosshair.br::before { bottom: 0; right: 0; }
+  .crosshair.br::after  { bottom: 0; right: 0; }
+
+  /* Inner CRM screenshot — sits on the canvas */
+  .shot {
+    position: absolute;
+    top: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 720px;
+    background: #FFFFFF;
+    color: #1A1A1A;
+    border: 1px solid #E5E7E8;
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    letter-spacing: -0.01em;
+  }
+  .shot-topbar {
+    height: 36px;
+    border-bottom: 1px solid #E5E7E8;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 10px;
+    background: #F7F7F5;
+    font-size: 12px;
+    color: #545A60;
+  }
+  .shot-topbar .dots { display: flex; gap: 6px; }
+  .shot-topbar .dots i { width: 8px; height: 8px; border-radius: 50%; background: #DADCDF; display: inline-block; }
+  .shot-topbar .title { font-weight: 500; color: #1A1A1A; font-size: 12px; }
+
+  .shot-body { padding: 22px 28px 26px; }
+  .shot h1 {
+    font: 600 18px/1.2 'Inter', sans-serif;
+    margin: 0 0 4px;
+    letter-spacing: -0.02em;
+  }
+  .shot .sub {
+    font-size: 12px;
+    color: #6B7077;
+    margin-bottom: 18px;
+  }
+  .shot .field-grid {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    row-gap: 12px;
+    column-gap: 18px;
+    border-top: 1px solid #EDEEEF;
+    padding-top: 16px;
+  }
+  .shot .k { font-size: 12px; color: #6B7077; font-weight: 500; }
+  .shot .v { font-size: 13px; color: #1A1A1A; }
+
+  .shot .activity { margin-top: 22px; padding-top: 16px; border-top: 1px solid #EDEEEF; }
+  .shot .activity h2 { font: 600 12px/1 'Inter', sans-serif; margin: 0 0 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #6B7077; }
+  .activity-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; background: #E5E7E8; flex: none; display: inline-block; }
+  .activity-row .name { font-size: 13px; font-weight: 500; color: #1A1A1A; }
+  .activity-row .em { font-size: 12px; color: #6B7077; font-family: 'JetBrains Mono', monospace; }
+  .activity-row .time { margin-left: auto; font-size: 11px; color: #8B9098; font-family: 'JetBrains Mono', monospace; }
+
+  /* ---------- Bounding boxes ---------- */
+  .bbox {
+    position: absolute;
+    box-sizing: border-box;
+    border: 2px solid;
+    pointer-events: none;
+  }
+  .bbox.email   { border-color: var(--cat-email); background: rgba(91,157,255,0.12); }
+  .bbox.phone   { border-color: var(--cat-phone); background: rgba(255,138,76,0.12); }
+  .bbox.name    { border-color: var(--cat-name);  background: rgba(197,143,255,0.12); }
+  .bbox.addr    { border-color: var(--cat-addr);  background: rgba(255,210,76,0.12); }
+  .bbox.acct    { border-color: var(--cat-acct);  background: rgba(255,92,124,0.12); }
+  .bbox.bal     { border-color: var(--cat-bal);   background: rgba(76,224,181,0.12); }
+  .bbox.cust    { border-color: var(--cat-cust);  background: rgba(167,139,250,0.12); }
+  .bbox.face    { border-color: var(--cat-face);  background: rgba(251,191,36,0.12); }
+
+  .bbox.selected { outline: 1px solid var(--text-1); outline-offset: 0; }
+
+  .bbox-label {
+    position: absolute;
+    top: -22px;
+    left: -2px;
+    height: 18px;
+    padding: 0 6px;
+    background: var(--bg);
+    border: 1px solid;
+    font: 500 10px/18px var(--mono);
+    color: var(--text-3);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .bbox-label .cat-name { color: var(--text-1); }
+  .bbox-label .conf { color: var(--text-3); }
+  .bbox.email   .bbox-label { border-color: var(--cat-email); }
+  .bbox.phone   .bbox-label { border-color: var(--cat-phone); }
+  .bbox.name    .bbox-label { border-color: var(--cat-name); }
+  .bbox.cust    .bbox-label { border-color: var(--cat-cust); }
+  .bbox.acct    .bbox-label { border-color: var(--cat-acct); }
+  .bbox.bal     .bbox-label { border-color: var(--cat-bal); }
+
+  /* Selection handles */
+  .handle {
+    position: absolute;
+    width: 5px; height: 5px;
+    background: var(--lime);
+    border: 1px solid var(--text-1);
+    pointer-events: none;
+  }
+  .handle.tl { top: -3px; left: -3px; cursor: nwse-resize; }
+  .handle.tr { top: -3px; right: -3px; cursor: nesw-resize; }
+  .handle.bl { bottom: -3px; left: -3px; cursor: nesw-resize; }
+  .handle.br { bottom: -3px; right: -3px; cursor: nwse-resize; }
+
+  /* ---------- Detail panel ---------- */
+  .detail { border-left: 0; padding: 0; }
+  .detail-hd {
+    display: flex; align-items: center; gap: 10px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-hd .sw { width: 10px; height: 10px; border-radius: 2px; }
+  .detail-hd .nm { font: 500 14px/1 var(--sans); color: var(--text-1); letter-spacing: -0.01em; }
+  .detail-hd .id { margin-left: auto; font: 400 11px/1 var(--mono); color: var(--text-3); }
+
+  .detail-body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 18px; }
+  .field-label {
+    font: 500 10px/1 var(--sans);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 8px;
+  }
+  .mono-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 9px 11px;
+    font: 500 13px/1.3 var(--mono);
+    color: var(--text-1);
+    border-radius: 3px;
+    word-break: break-all;
+  }
+  .input-field {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 9px 11px;
+    font: 500 13px/1.3 var(--mono);
+    color: var(--text-1);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .input-field .edit-ico { color: var(--text-3); }
+
+  .conf-row { display: flex; align-items: center; gap: 10px; }
+  .conf-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+  }
+  .conf-bar .fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--cat-email); }
+  .conf-num { font: 500 12px/1 var(--mono); color: var(--text-1); min-width: 36px; text-align: right; }
+
+  .chip-row { display: flex; gap: 6px; }
+  .chip {
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border-strong);
+    font: 500 11px/22px var(--sans);
+    color: var(--text-2);
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chip.on {
+    border-color: var(--lime);
+    color: var(--text-1);
+    background: rgba(198,244,50,0.08);
+  }
+  .chip .dot-s { width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
+  .chip.on .dot-s { background: var(--lime); }
+
+  .detail-div { height: 1px; background: var(--border); margin: 2px 0; }
+  .detail-actions { display: flex; gap: 20px; }
+  .text-btn {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--text-2);
+    font: 500 13px/1 var(--sans);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .text-btn.danger { color: #FF8A9C; }
+
+  /* ---------- Bottom bar ---------- */
+  .bottombar {
+    border-top: 1px solid var(--border);
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: var(--bg);
+  }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    overflow: hidden;
+    height: 32px;
+  }
+  .seg button {
+    height: 100%;
+    padding: 0 14px;
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--border-strong);
+    color: var(--text-2);
+    font: 500 13px/1 var(--sans);
+    letter-spacing: -0.01em;
+    cursor: pointer;
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on {
+    background: var(--lime);
+    color: var(--lime-ink);
+  }
+
+  .actions { display: flex; gap: 10px; }
+  .btn {
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text-1);
+    font: 500 14px/1 var(--sans);
+    letter-spacing: -0.01em;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .btn .kbd { font: 400 12px/1 var(--mono); color: var(--text-3); }
+  .btn.primary {
+    background: var(--lime);
+    color: var(--lime-ink);
+    border-color: var(--lime);
+  }
+  .btn.primary .kbd { color: rgba(10,11,12,0.55); }
+
+  /* ---------- Landing ---------- */
+  .landing-canvas {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+  }
+  .drop {
+    border: 2px dashed var(--border-strong);
+    border-radius: 4px;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+  }
+  .drop .ico { color: var(--text-3); margin-bottom: 16px; }
+  .drop .h {
+    font: 500 20px/1.2 var(--sans);
+    color: var(--text-1);
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+  .drop .s {
+    font: 400 13px/1.3 var(--sans);
+    color: var(--text-2);
+    margin-bottom: 16px;
+  }
+  .try-btn {
+    background: var(--lime);
+    color: var(--lime-ink);
+    border: 0;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 4px;
+    font: 500 13px/1 var(--sans);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: -0.01em;
+  }
+  .samples {
+    margin-top: 28px;
+    display: flex;
+    gap: 8px;
+  }
+  .samples .s {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .thumb {
+    width: 96px; height: 64px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    position: relative;
+    overflow: hidden;
+  }
+  .thumb::before {
+    content: "";
+    position: absolute; inset: 6px;
+    background:
+      linear-gradient(var(--border) 1px, transparent 1px) 0 0 / 100% 8px,
+      var(--bg);
+    opacity: 0.7;
+  }
+  .thumb::after {
+    content: "";
+    position: absolute; left: 6px; top: 6px; width: 22px; height: 4px;
+    background: var(--text-3); opacity: 0.5;
+  }
+  .thumb-label { font: 400 11px/1 var(--mono); color: var(--text-3); }
+
+  /* Landing right rail */
+  .how-card {
+    margin: 18px 18px 0;
+    padding: 18px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .how-card h3 {
+    font: 500 13px/1 var(--sans);
+    margin: 0 0 16px;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+  }
+  .how-card ol {
+    list-style: none;
+    padding: 0; margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    counter-reset: how;
+  }
+  .how-card li {
+    font: 400 13px/1.4 var(--sans);
+    color: var(--text-2);
+    counter-increment: how;
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 8px;
+  }
+  .how-card li::before {
+    content: counter(how) ".";
+    font: 500 12px/1.4 var(--mono);
+    color: var(--text-3);
+  }
+
+  /* ---------- Loading state ---------- */
+  .loading-canvas {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background:
+      radial-gradient(circle at center, var(--surface-2) 0.6px, transparent 0.6px) 0 0 / 24px 24px,
+      var(--surface-1);
+  }
+  .ring {
+    width: 48px; height: 48px;
+    position: relative;
+    margin-bottom: 22px;
+  }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring .num {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font: 500 13px/1 var(--mono);
+    color: var(--text-1);
+  }
+  .load-h { font: 500 14px/1 var(--sans); color: var(--text-1); letter-spacing: -0.01em; margin-bottom: 10px; }
+  .load-meta { font: 400 12px/1 var(--mono); color: var(--text-3); margin-bottom: 18px; }
+  .load-reassure { font: 400 12px/1.4 var(--sans); color: var(--text-3); max-width: 360px; text-align: center; }
+
+  /* ---------- Mobile mockup ---------- */
+  .mobile {
+    width: 390px;
+    height: 844px;
+    margin: 0 auto;
+    background: var(--bg);
+    display: grid;
+    grid-template-rows: 48px 44px 1fr 56px;
+    position: relative;
+    overflow: hidden;
+  }
+  .mob-top {
+    height: 48px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+  }
+  .mob-top .wm { font: 600 18px/1 var(--mono); letter-spacing: -0.04em; }
+  .mob-top .wm .dim { color: var(--text-3); font-weight: 500; }
+  .mob-top .right { display: flex; align-items: center; gap: 10px; }
+  .mob-strip {
+    height: 44px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 16px;
+    overflow-x: hidden;
+    background: var(--bg);
+  }
+  .mob-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    border-radius: 999px;
+    flex: none;
+  }
+  .mob-chip .sw { width: 8px; height: 8px; border-radius: 2px; }
+  .mob-chip .lb { font: 500 12px/1 var(--sans); color: var(--text-1); }
+  .mob-chip .ct { font: 500 11px/1 var(--mono); color: var(--text-2); }
+  .mob-canvas {
+    position: relative;
+    background:
+      radial-gradient(circle at center, var(--surface-2) 0.6px, transparent 0.6px) 0 0 / 24px 24px,
+      var(--surface-1);
+    overflow: hidden;
+  }
+  .mob-shot {
+    position: absolute;
+    top: 24px; left: 16px; right: 16px;
+    background: #FFFFFF;
+    border: 1px solid #E5E7E8;
+    border-radius: 6px;
+    color: #1A1A1A;
+    overflow: hidden;
+  }
+  .mob-shot .mob-tb {
+    height: 28px;
+    border-bottom: 1px solid #E5E7E8;
+    background: #F7F7F5;
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px;
+    font-size: 11px;
+    color: #6B7077;
+  }
+  .mob-shot .mob-tb .dots { display: flex; gap: 4px; }
+  .mob-shot .mob-tb .dots i { width: 6px; height: 6px; border-radius: 50%; background: #DADCDF; display: inline-block; }
+  .mob-shot-body { padding: 14px 16px 16px; }
+  .mob-shot h1 { font: 600 14px/1.2 'Inter', sans-serif; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .mob-shot .sub { font-size: 11px; color: #6B7077; margin-bottom: 12px; }
+  .mob-shot .row { display: grid; grid-template-columns: 100px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid #EDEEEF; }
+  .mob-shot .row .k { font-size: 11px; color: #6B7077; font-weight: 500; }
+  .mob-shot .row .v { font-size: 12px; color: #1A1A1A; }
+
+  .sheet {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 40%;
+    background: var(--surface-1);
+    border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+    z-index: 5;
+    padding: 14px 18px 18px;
+    display: flex;
+    flex-direction: column;
+  }
+  .sheet .grip {
+    width: 24px; height: 4px; border-radius: 999px; background: var(--border-strong);
+    margin: 0 auto 14px;
+  }
+
+  .mob-bottom {
+    height: 56px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    background: var(--bg);
+    z-index: 6;
+  }
+  .seg-ico {
+    display: inline-flex;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    overflow: hidden;
+    height: 36px;
+  }
+  .seg-ico button {
+    width: 40px; height: 100%;
+    background: transparent; border: 0;
+    border-right: 1px solid var(--border-strong);
+    color: var(--text-2);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .seg-ico button:last-child { border-right: 0; }
+  .seg-ico button.on { background: var(--lime); color: var(--lime-ink); }
+  .icon-btn {
+    width: 40px; height: 36px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text-1);
+    border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .icon-btn.primary { background: var(--lime); color: var(--lime-ink); border-color: var(--lime); }
+
+  /* utility */
+  .row { display: flex; align-items: center; gap: 8px; }
+  .ms { font-family: var(--mono); }
+
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ============================================================ -->
+  <!-- 1. MAIN EDITOR — DARK                                         -->
+  <!-- ============================================================ -->
+  <section>
+    <div class="mock-header">Main Editor — Dark <span class="meta">1440 × 900</span></div>
+    <div class="frame">
+      <div class="app" data-screen-label="01 Main editor — dark">
+
+        <!-- Top bar -->
+        <header class="topbar">
+          <div class="scanline"></div>
+          <div class="wordmark">Va<span class="dim">n</span>ish</div>
+          <div class="crumb">
+            <span>crm-screenshot.png</span>
+            <span class="sep">·</span>
+            <span class="dim">1280 × 800</span>
+          </div>
+          <div class="top-right">
+            <div class="status-pill">
+              <span class="dot"></span>
+              <span class="label">Ready</span>
+              <span class="model">Gemma 4 E2B</span>
+            </div>
+            <a class="privacy-link" href="#">Privacy</a>
+          </div>
+        </header>
+
+        <!-- Main grid -->
+        <div class="main">
+
+          <!-- Left rail -->
+          <aside class="rail">
+            <div class="rail-section">
+              <div class="rail-title">Detected</div>
+              <div class="cat-list">
+
+                <div class="cat-row active" style="color: var(--cat-email)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Email</span>
+                  <span class="count">3</span>
+                  <span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-phone)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Phone</span>
+                  <span class="count">2</span>
+                  <span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-name)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Person name</span>
+                  <span class="count">4</span>
+                  <span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-addr)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Address</span>
+                  <span class="count">1</span>
+                  <span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-acct)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Account number</span>
+                  <span class="count">2</span>
+                  <span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-bal)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Balance</span>
+                  <span class="count">1</span>
+                  <span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-cust)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Customer ID</span>
+                  <span class="count">3</span>
+                  <span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-face)">
+                  <span class="swatch"></span>
+                  <span class="cat-label">Face</span>
+                  <span class="count">1</span>
+                  <span class="toggle on"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="rail-divider"></div>
+
+            <div class="rail-add">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              <span>Add region manually</span>
+            </div>
+
+            <div class="rail-footer">9 regions detected</div>
+          </aside>
+
+          <!-- Canvas -->
+          <div class="canvas-wrap">
+            <div class="canvas"></div>
+
+            <!-- corner crosshairs -->
+            <div class="crosshair tl"></div>
+            <div class="crosshair tr"></div>
+            <div class="crosshair bl"></div>
+            <div class="crosshair br"></div>
+
+            <!-- Inner "screenshot" -->
+            <div class="shot">
+              <div class="shot-topbar">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="title">Acme Corp — Account</span>
+                <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8B9098;">crm.internal.acme.io</span>
+              </div>
+              <div class="shot-body">
+                <h1>Account: Acme Corp</h1>
+                <div class="sub">Tier: Enterprise · Owner: Field Sales · Updated 2 hrs ago</div>
+
+                <div class="field-grid">
+                  <div class="k">Primary contact</div>
+                  <div class="v" data-pii="name-1">Michael Sandberg</div>
+
+                  <div class="k">Email</div>
+                  <div class="v" data-pii="email-1" style="font-family:'JetBrains Mono',monospace;font-size:13px;">m.sandberg@acme.io</div>
+
+                  <div class="k">Phone</div>
+                  <div class="v" data-pii="phone-1" style="font-family:'JetBrains Mono',monospace;font-size:13px;">+1 (415) 555-0148</div>
+
+                  <div class="k">Customer ID</div>
+                  <div class="v" data-pii="cust-1" style="font-family:'JetBrains Mono',monospace;font-size:13px;">CUS-4827-9931</div>
+
+                  <div class="k">Address</div>
+                  <div class="v" data-pii="addr-1">1180 Folsom St, San Francisco, CA 94103</div>
+
+                  <div class="k">Outstanding balance</div>
+                  <div class="v" data-pii="bal-1" style="font-family:'JetBrains Mono',monospace;font-size:13px;">$48,210.00</div>
+                </div>
+
+                <div class="activity">
+                  <h2>Recent activity</h2>
+                  <div class="activity-row">
+                    <span class="avatar" data-pii="face-1"></span>
+                    <span class="name" data-pii="name-2">Priya Raman</span>
+                    <span class="em" data-pii="email-2">p.raman@acme.io</span>
+                    <span class="time">14:02</span>
+                  </div>
+                  <div class="activity-row">
+                    <span class="avatar"></span>
+                    <span class="name" data-pii="name-3">David Okafor</span>
+                    <span class="em" data-pii="email-3">d.okafor@vendor.co</span>
+                    <span class="time">11:48</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bounding boxes — coordinates measured against actual rendered text positions in canvas-wrap. -->
+
+            <!-- Person name (Michael Sandberg) -->
+            <div class="bbox name" style="left: 313px; top: 186px; width: 117px; height: 24px;">
+              <div class="bbox-label">
+                <span class="cat-name">name</span>
+                <span class="conf">· 0.91</span>
+              </div>
+            </div>
+
+            <!-- Email — Selected -->
+            <div class="bbox email selected" style="left: 313px; top: 214px; width: 146px; height: 26px;">
+              <div class="bbox-label">
+                <span class="cat-name">email</span>
+                <span class="conf">· 0.94</span>
+              </div>
+              <div class="handle tl"></div>
+              <div class="handle tr"></div>
+              <div class="handle bl"></div>
+              <div class="handle br"></div>
+            </div>
+
+            <!-- Phone -->
+            <div class="bbox phone" style="left: 313px; top: 243px; width: 138px; height: 26px;"></div>
+
+            <!-- Customer ID -->
+            <div class="bbox cust" style="left: 313px; top: 273px; width: 108px; height: 26px;"></div>
+
+            <!-- Address -->
+            <div class="bbox addr" style="left: 313px; top: 302px; width: 255px; height: 24px;"></div>
+
+            <!-- Balance -->
+            <div class="bbox bal" style="left: 313px; top: 330px; width: 85px; height: 26px;">
+              <div class="bbox-label">
+                <span class="cat-name">balance</span>
+                <span class="conf">· 0.88</span>
+              </div>
+            </div>
+
+            <!-- Activity: face avatar -->
+            <div class="bbox face" style="left: 135px; top: 418px; width: 32px; height: 32px;"></div>
+
+            <!-- Activity row 1: name + email -->
+            <div class="bbox name" style="left: 171px; top: 422px; width: 84px; height: 24px;"></div>
+            <div class="bbox email" style="left: 259px; top: 422px; width: 114px; height: 24px;"></div>
+
+            <!-- Activity row 2: name + email -->
+            <div class="bbox name" style="left: 171px; top: 462px; width: 87px; height: 24px;"></div>
+            <div class="bbox email" style="left: 262px; top: 462px; width: 135px; height: 24px;"></div>
+
+          </div>
+
+          <!-- Detail panel -->
+          <aside class="detail">
+            <div class="detail-hd">
+              <span class="sw" style="background: var(--cat-email)"></span>
+              <span class="nm">Email</span>
+              <span class="id">region · 04</span>
+            </div>
+
+            <div class="detail-body">
+
+              <div>
+                <div class="field-label">Detected text</div>
+                <div class="mono-block">m.sandberg@acme.io</div>
+              </div>
+
+              <div>
+                <div class="field-label">Replacement</div>
+                <div class="input-field">
+                  <span>[REDACTED EMAIL]</span>
+                  <svg class="edit-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                </div>
+              </div>
+
+              <div>
+                <div class="field-label">Confidence</div>
+                <div class="conf-row">
+                  <div class="conf-bar"><div class="fill" style="width: 94%"></div></div>
+                  <div class="conf-num">0.94</div>
+                </div>
+              </div>
+
+              <div>
+                <div class="field-label">Source</div>
+                <div class="chip-row">
+                  <span class="chip on"><span class="dot-s"></span>Model</span>
+                  <span class="chip"><span class="dot-s"></span>Regex</span>
+                </div>
+              </div>
+
+              <div class="detail-div"></div>
+
+              <div class="detail-actions">
+                <button class="text-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                  Delete region
+                </button>
+                <button class="text-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Lock
+                </button>
+              </div>
+            </div>
+          </aside>
+
+        </div>
+
+        <!-- Bottom bar -->
+        <footer class="bottombar">
+          <div class="seg">
+            <button class="on">Solid</button>
+            <button>Blur</button>
+            <button>Replace</button>
+          </div>
+          <div class="actions">
+            <button class="btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+              <span class="kbd">⌘C</span>
+            </button>
+            <button class="btn primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              Download
+              <span class="kbd">⌘D</span>
+            </button>
+          </div>
+        </footer>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 2. LANDING STATE — DARK                                       -->
+  <!-- ============================================================ -->
+  <section>
+    <div class="mock-header">Landing State — Dark <span class="meta">1440 × 900</span></div>
+    <div class="frame">
+      <div class="app" data-screen-label="02 Landing state">
+
+        <header class="topbar">
+          <div class="scanline"></div>
+          <div class="wordmark">Va<span class="dim">n</span>ish</div>
+          <div class="crumb"><span class="dim">No file loaded</span></div>
+          <div class="top-right">
+            <div class="status-pill">
+              <span class="dot"></span>
+              <span class="label">Ready</span>
+              <span class="model">Gemma 4 E2B</span>
+            </div>
+            <a class="privacy-link" href="#">Privacy</a>
+          </div>
+        </header>
+
+        <div class="main">
+          <!-- empty rail -->
+          <aside class="rail">
+            <div class="rail-section">
+              <div class="rail-title">Detected</div>
+              <div style="padding: 8px 8px; font: 400 12px/1.4 var(--mono); color: var(--text-3);">No regions yet.<br>Drop a screenshot to begin.</div>
+            </div>
+            <div class="rail-footer">0 regions</div>
+          </aside>
+
+          <!-- Drop target canvas -->
+          <div class="canvas-wrap">
+            <div class="canvas"></div>
+            <div class="crosshair tl"></div>
+            <div class="crosshair tr"></div>
+            <div class="crosshair bl"></div>
+            <div class="crosshair br"></div>
+
+            <div class="landing-canvas">
+              <div class="drop">
+                <span class="ico">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M21 15v4a2 2 0 0 1-2 2h-4"/><path d="M14 21h-4"/><circle cx="9" cy="9" r="2"/><path d="M19 14v-3"/><path d="M17.5 12.5h3"/></svg>
+                </span>
+                <div class="h">Drop a screenshot to redact it</div>
+                <div class="s">Paste with <span class="ms" style="color:var(--text-1)">⌘V</span>, drag in, or click to choose a file.</div>
+                <button class="try-btn">Try a sample
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+                </button>
+
+                <div class="samples">
+                  <div class="s">
+                    <div class="thumb"></div>
+                    <div class="thumb-label">crm.png</div>
+                  </div>
+                  <div class="s">
+                    <div class="thumb"></div>
+                    <div class="thumb-label">slack.png</div>
+                  </div>
+                  <div class="s">
+                    <div class="thumb"></div>
+                    <div class="thumb-label">terminal.png</div>
+                  </div>
+                  <div class="s">
+                    <div class="thumb"></div>
+                    <div class="thumb-label">billing.png</div>
+                  </div>
+                  <div class="s">
+                    <div class="thumb"></div>
+                    <div class="thumb-label">email.png</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- How it works rail -->
+          <aside class="detail">
+            <div class="how-card">
+              <h3>How this works</h3>
+              <ol>
+                <li>Your screenshot stays on this device.</li>
+                <li>Gemma 4 finds the PII.</li>
+                <li>You redact, export, done.</li>
+              </ol>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="bottombar">
+          <div class="seg">
+            <button class="on">Solid</button>
+            <button>Blur</button>
+            <button>Replace</button>
+          </div>
+          <div class="actions">
+            <button class="btn" style="color: var(--text-3); border-color: var(--border)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+              <span class="kbd">⌘C</span>
+            </button>
+            <button class="btn" style="background: var(--surface-2); color: var(--text-3); border-color: var(--border)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              Download
+              <span class="kbd">⌘D</span>
+            </button>
+          </div>
+        </footer>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 3. MODEL LOADING — DARK                                       -->
+  <!-- ============================================================ -->
+  <section>
+    <div class="mock-header">Model Loading — Dark <span class="meta">canvas detail</span></div>
+    <div class="frame" style="padding: 0;">
+      <div style="width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 220px 1fr 280px; height: 560px; background: var(--bg);">
+        <!-- Stub rail -->
+        <aside class="rail">
+          <div class="rail-section">
+            <div class="rail-title">Detected</div>
+            <div style="padding: 8px 8px; font: 400 12px/1.4 var(--mono); color: var(--text-3);">Waiting for model…</div>
+          </div>
+        </aside>
+
+        <!-- The loading canvas -->
+        <div class="canvas-wrap" style="border-right: 1px solid var(--border);">
+          <div class="loading-canvas">
+            <div class="ring">
+              <svg viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="22" fill="none" stroke="var(--border)" stroke-width="2"/>
+                <circle cx="24" cy="24" r="22" fill="none" stroke="var(--lime)" stroke-width="2"
+                  stroke-dasharray="138.23" stroke-dashoffset="73.26"
+                  stroke-linecap="butt"/>
+              </svg>
+              <div class="num">47%</div>
+            </div>
+            <div class="load-h">Downloading Gemma 4 E2B</div>
+            <div class="load-meta">247 MB / 524 MB · 12.4 MB/s · ~24 s remaining</div>
+            <div class="load-reassure">One-time download. Cached for next time. Nothing else leaves your device.</div>
+          </div>
+          <div class="crosshair tl"></div>
+          <div class="crosshair tr"></div>
+          <div class="crosshair bl"></div>
+          <div class="crosshair br"></div>
+        </div>
+
+        <!-- Stub detail -->
+        <aside class="detail">
+          <div class="detail-hd">
+            <span class="sw" style="background: var(--border-strong)"></span>
+            <span class="nm" style="color: var(--text-3)">No selection</span>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 4. MOBILE EDITOR — DARK                                       -->
+  <!-- ============================================================ -->
+  <section>
+    <div class="mock-header">Mobile Editor — Dark <span class="meta">390 × 844</span></div>
+    <div class="frame" style="padding: 40px 0; background: var(--page-bg); border: 1px solid var(--border);">
+      <div class="mobile" data-screen-label="04 Mobile editor" style="border: 1px solid var(--border);">
+
+        <header class="mob-top">
+          <div class="wm">Va<span class="dim">n</span>ish</div>
+          <div class="right">
+            <div class="status-pill" style="height: 24px; padding: 0 8px 0 8px;">
+              <span class="dot"></span>
+              <span class="label" style="font-size: 11px;">Ready</span>
+            </div>
+          </div>
+        </header>
+
+        <div class="mob-strip">
+          <span class="mob-chip" style="color: var(--cat-email)"><span class="sw" style="background: currentColor"></span><span class="lb">Email</span><span class="ct">3</span></span>
+          <span class="mob-chip" style="color: var(--cat-phone)"><span class="sw" style="background: currentColor"></span><span class="lb">Phone</span><span class="ct">2</span></span>
+          <span class="mob-chip" style="color: var(--cat-name)"><span class="sw" style="background: currentColor"></span><span class="lb">Name</span><span class="ct">4</span></span>
+          <span class="mob-chip" style="color: var(--cat-addr)"><span class="sw" style="background: currentColor"></span><span class="lb">Address</span><span class="ct">1</span></span>
+          <span class="mob-chip" style="color: var(--cat-cust)"><span class="sw" style="background: currentColor"></span><span class="lb">Cust ID</span></span>
+        </div>
+
+        <div class="mob-canvas">
+          <div class="mob-shot">
+            <div class="mob-tb">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span>Acme Corp</span>
+            </div>
+            <div class="mob-shot-body">
+              <h1>Account: Acme Corp</h1>
+              <div class="sub">Enterprise · Updated 2h</div>
+
+              <div class="row">
+                <div class="k">Contact</div>
+                <div class="v">Michael Sandberg</div>
+              </div>
+              <div class="row">
+                <div class="k">Email</div>
+                <div class="v ms" style="font-size:11px;">m.sandberg@acme.io</div>
+              </div>
+              <div class="row">
+                <div class="k">Phone</div>
+                <div class="v ms" style="font-size:11px;">+1 (415) 555-0148</div>
+              </div>
+              <div class="row">
+                <div class="k">Customer ID</div>
+                <div class="v ms" style="font-size:11px;">CUS-4827-9931</div>
+              </div>
+              <div class="row">
+                <div class="k">Balance</div>
+                <div class="v ms" style="font-size:11px;">$48,210.00</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- A few bounding boxes -->
+          <div class="bbox email selected" style="left: 105px; top: 137px; width: 175px; height: 18px;">
+            <div class="bbox-label" style="font-size: 9px; top: -18px;"><span class="cat-name">email</span><span class="conf">· 0.94</span></div>
+            <div class="handle tl"></div><div class="handle tr"></div><div class="handle bl"></div><div class="handle br"></div>
+          </div>
+          <div class="bbox name" style="left: 105px; top: 110px; width: 150px; height: 18px;"></div>
+          <div class="bbox phone" style="left: 105px; top: 164px; width: 140px; height: 18px;"></div>
+          <div class="bbox cust" style="left: 105px; top: 191px; width: 110px; height: 18px;"></div>
+          <div class="bbox bal" style="left: 105px; top: 218px; width: 70px; height: 18px;"></div>
+
+          <!-- Bottom sheet -->
+          <div class="sheet">
+            <div class="grip"></div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+              <span style="width:10px;height:10px;border-radius:2px;background:var(--cat-email);"></span>
+              <span style="font:500 14px/1 var(--sans);color:var(--text-1);">Email</span>
+              <span style="margin-left:auto;font:400 11px/1 var(--mono);color:var(--text-3);">region · 04</span>
+            </div>
+
+            <div style="margin-bottom:14px;">
+              <div class="field-label">Detected text</div>
+              <div class="mono-block">m.sandberg@acme.io</div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+              <div class="field-label">Replacement</div>
+              <div class="input-field"><span>[REDACTED EMAIL]</span></div>
+            </div>
+
+            <div>
+              <div class="field-label">Confidence</div>
+              <div class="conf-row">
+                <div class="conf-bar"><div class="fill" style="width: 94%"></div></div>
+                <div class="conf-num">0.94</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="mob-bottom">
+          <div class="seg-ico">
+            <button class="on" title="Solid">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
+            </button>
+            <button title="Blur">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+            </button>
+            <button title="Replace">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h12l-3 3"/><path d="M21 20H9l3-3"/></svg>
+            </button>
+          </div>
+          <div class="row" style="gap: 8px;">
+            <div class="icon-btn" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </div>
+            <div class="icon-btn primary" title="Download">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            </div>
+          </div>
+        </footer>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 5. MAIN EDITOR — LIGHT                                        -->
+  <!-- ============================================================ -->
+  <section class="light">
+    <div class="mock-header" style="color: #1A1A1A;">Main Editor — Light <span class="meta" style="color: #6B7077;">1440 × 900</span></div>
+    <div class="frame">
+      <div class="app app-light" data-screen-label="05 Main editor — light">
+
+        <header class="topbar">
+          <div class="scanline"></div>
+          <div class="wordmark">Va<span class="dim">n</span>ish</div>
+          <div class="crumb">
+            <span>crm-screenshot.png</span>
+            <span class="sep">·</span>
+            <span class="dim">1280 × 800</span>
+          </div>
+          <div class="top-right">
+            <div class="status-pill">
+              <span class="dot"></span>
+              <span class="label">Ready</span>
+              <span class="model">Gemma 4 E2B</span>
+            </div>
+            <a class="privacy-link" href="#">Privacy</a>
+          </div>
+        </header>
+
+        <div class="main">
+
+          <aside class="rail">
+            <div class="rail-section">
+              <div class="rail-title">Detected</div>
+              <div class="cat-list">
+                <div class="cat-row active" style="color: var(--cat-email)">
+                  <span class="swatch"></span><span class="cat-label">Email</span><span class="count">3</span><span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-phone)">
+                  <span class="swatch"></span><span class="cat-label">Phone</span><span class="count">2</span><span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-name)">
+                  <span class="swatch"></span><span class="cat-label">Person name</span><span class="count">4</span><span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-addr)">
+                  <span class="swatch"></span><span class="cat-label">Address</span><span class="count">1</span><span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-acct)">
+                  <span class="swatch"></span><span class="cat-label">Account number</span><span class="count">2</span><span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-bal)">
+                  <span class="swatch"></span><span class="cat-label">Balance</span><span class="count">1</span><span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-cust)">
+                  <span class="swatch"></span><span class="cat-label">Customer ID</span><span class="count">3</span><span class="toggle on"></span>
+                </div>
+                <div class="cat-row" style="color: var(--cat-face)">
+                  <span class="swatch"></span><span class="cat-label">Face</span><span class="count">1</span><span class="toggle on"></span>
+                </div>
+              </div>
+            </div>
+            <div class="rail-divider"></div>
+            <div class="rail-add">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              <span>Add region manually</span>
+            </div>
+            <div class="rail-footer">9 regions detected</div>
+          </aside>
+
+          <div class="canvas-wrap">
+            <div class="canvas" style="background: radial-gradient(circle at center, var(--border) 0.6px, transparent 0.6px) 0 0 / 24px 24px, var(--surface-1);"></div>
+            <div class="crosshair tl"></div>
+            <div class="crosshair tr"></div>
+            <div class="crosshair bl"></div>
+            <div class="crosshair br"></div>
+
+            <div class="shot">
+              <div class="shot-topbar">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="title">Acme Corp — Account</span>
+                <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8B9098;">crm.internal.acme.io</span>
+              </div>
+              <div class="shot-body">
+                <h1>Account: Acme Corp</h1>
+                <div class="sub">Tier: Enterprise · Owner: Field Sales · Updated 2 hrs ago</div>
+
+                <div class="field-grid">
+                  <div class="k">Primary contact</div><div class="v">Michael Sandberg</div>
+                  <div class="k">Email</div><div class="v" style="font-family:'JetBrains Mono',monospace;font-size:13px;">m.sandberg@acme.io</div>
+                  <div class="k">Phone</div><div class="v" style="font-family:'JetBrains Mono',monospace;font-size:13px;">+1 (415) 555-0148</div>
+                  <div class="k">Customer ID</div><div class="v" style="font-family:'JetBrains Mono',monospace;font-size:13px;">CUS-4827-9931</div>
+                  <div class="k">Address</div><div class="v">1180 Folsom St, San Francisco, CA 94103</div>
+                  <div class="k">Outstanding balance</div><div class="v" style="font-family:'JetBrains Mono',monospace;font-size:13px;">$48,210.00</div>
+                </div>
+
+                <div class="activity">
+                  <h2>Recent activity</h2>
+                  <div class="activity-row"><span class="avatar"></span><span class="name">Priya Raman</span><span class="em">p.raman@acme.io</span><span class="time">14:02</span></div>
+                  <div class="activity-row"><span class="avatar"></span><span class="name">David Okafor</span><span class="em">d.okafor@vendor.co</span><span class="time">11:48</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="bbox name" style="left: 313px; top: 186px; width: 117px; height: 24px;">
+              <div class="bbox-label" style="background: var(--bg);"><span class="cat-name">name</span><span class="conf">· 0.91</span></div>
+            </div>
+            <div class="bbox email selected" style="left: 313px; top: 214px; width: 146px; height: 26px;">
+              <div class="bbox-label" style="background: var(--bg); color: var(--text-3);"><span class="cat-name">email</span><span class="conf">· 0.94</span></div>
+              <div class="handle tl"></div><div class="handle tr"></div><div class="handle bl"></div><div class="handle br"></div>
+            </div>
+            <div class="bbox phone" style="left: 313px; top: 243px; width: 138px; height: 26px;"></div>
+            <div class="bbox cust" style="left: 313px; top: 273px; width: 108px; height: 26px;"></div>
+            <div class="bbox addr" style="left: 313px; top: 302px; width: 255px; height: 24px;"></div>
+            <div class="bbox bal" style="left: 313px; top: 330px; width: 85px; height: 26px;">
+              <div class="bbox-label" style="background: var(--bg);"><span class="cat-name">balance</span><span class="conf">· 0.88</span></div>
+            </div>
+            <div class="bbox face" style="left: 135px; top: 418px; width: 32px; height: 32px;"></div>
+            <div class="bbox name" style="left: 171px; top: 422px; width: 84px; height: 24px;"></div>
+            <div class="bbox email" style="left: 259px; top: 422px; width: 114px; height: 24px;"></div>
+            <div class="bbox name" style="left: 171px; top: 462px; width: 87px; height: 24px;"></div>
+            <div class="bbox email" style="left: 262px; top: 462px; width: 135px; height: 24px;"></div>
+          </div>
+
+          <aside class="detail">
+            <div class="detail-hd">
+              <span class="sw" style="background: var(--cat-email)"></span>
+              <span class="nm">Email</span>
+              <span class="id">region · 04</span>
+            </div>
+            <div class="detail-body">
+              <div>
+                <div class="field-label">Detected text</div>
+                <div class="mono-block">m.sandberg@acme.io</div>
+              </div>
+              <div>
+                <div class="field-label">Replacement</div>
+                <div class="input-field">
+                  <span>[REDACTED EMAIL]</span>
+                  <svg class="edit-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                </div>
+              </div>
+              <div>
+                <div class="field-label">Confidence</div>
+                <div class="conf-row">
+                  <div class="conf-bar"><div class="fill" style="width: 94%"></div></div>
+                  <div class="conf-num">0.94</div>
+                </div>
+              </div>
+              <div>
+                <div class="field-label">Source</div>
+                <div class="chip-row">
+                  <span class="chip on"><span class="dot-s"></span>Model</span>
+                  <span class="chip"><span class="dot-s"></span>Regex</span>
+                </div>
+              </div>
+              <div class="detail-div"></div>
+              <div class="detail-actions">
+                <button class="text-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                  Delete region
+                </button>
+                <button class="text-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Lock
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="bottombar">
+          <div class="seg">
+            <button class="on">Solid</button>
+            <button>Blur</button>
+            <button>Replace</button>
+          </div>
+          <div class="actions">
+            <button class="btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy <span class="kbd">⌘C</span>
+            </button>
+            <button class="btn primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              Download <span class="kbd">⌘D</span>
+            </button>
+          </div>
+        </footer>
+
+      </div>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>
