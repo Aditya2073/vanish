@@ -1,109 +1,173 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  ProgressInfo,
-  WorkerInbound,
-  WorkerOutbound,
-  WorkerStatus,
-} from './types';
-import type { PIIRegion } from './schema';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ProgressInfo, WorkerInbound, WorkerOutbound, WorkerStatus } from './types';
+import type { PIICategory } from './schema';
+import { CATEGORY_ORDER } from './lib/categories';
+import { toClientRegions } from './lib/regions';
+import { copyImageBlobToClipboard, downloadBlob, renderRedacted } from './lib/export';
+import { useRedaction } from './hooks/useRedaction';
+import { useTheme } from './hooks/useTheme';
+import { TopBar } from './components/TopBar';
+import { CategoryRail } from './components/CategoryRail';
+import { RedactionCanvas } from './components/RedactionCanvas';
+import { DetailPanel, DetailPanelEmpty } from './components/DetailPanel';
+import { ExportBar } from './components/ExportBar';
+import { Dropzone, type SampleEntry } from './components/Dropzone';
+import { HowItWorksCard } from './components/HowItWorksCard';
+import { ModelLoadingState } from './components/ModelLoadingState';
+import type { RedactionMode } from './components/RedactionModeToggle';
+
+const SAMPLES: SampleEntry[] = [
+  { label: 'crm.png', src: '/samples/crm.png' },
+  { label: 'slack.png', src: '/samples/slack.png' },
+  { label: 'terminal.png', src: '/samples/terminal.png' },
+  { label: 'billing.png', src: '/samples/billing.png' },
+  { label: 'clean.png', src: '/samples/clean.png' },
+];
+
+const EMPTY_ENABLED: Record<PIICategory, boolean> = CATEGORY_ORDER.reduce(
+  (acc, cat) => {
+    acc[cat] = true;
+    return acc;
+  },
+  {} as Record<PIICategory, boolean>,
+);
 
 type LoadProgress = {
   file?: string;
   loaded?: number;
   total?: number;
   progress?: number;
+  bytesPerSecond?: number;
+  etaSeconds?: number;
 };
 
-function formatBytes(n?: number): string {
-  if (!n || !Number.isFinite(n)) return '';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(1)} ${units[i]}`;
-}
-
 function App() {
+  const { theme, toggle: toggleTheme } = useTheme();
+
   const workerRef = useRef<Worker | null>(null);
   const [status, setStatus] = useState<WorkerStatus | 'idle'>('idle');
   const [loadProgress, setLoadProgress] = useState<LoadProgress>({});
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [regions, setRegions] = useState<PIIRegion[]>([]);
-  const [dragOver, setDragOver] = useState(false);
-  const generationIdRef = useRef(0);
 
+  const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageName, setImageName] = useState<string>('');
+  const [imageDims, setImageDims] = useState<{ w: number; h: number } | null>(null);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredCategory, setHoveredCategory] = useState<PIICategory | null>(null);
+  const [enabled, setEnabled] = useState<Record<PIICategory, boolean>>(EMPTY_ENABLED);
+  const [mode, setMode] = useState<RedactionMode>('solid');
+
+  const region = useRedaction();
+  const generationIdRef = useRef(0);
+  const pendingGenerationRef = useRef(false);
+  const loadStartedAtRef = useRef<number>(0);
+
+  // ───── Worker bootstrap ─────────────────────────────────────────────────
   useEffect(() => {
-    const worker = new Worker(
+    const w = new Worker(
       new URL('./worker/gemma.worker.ts', import.meta.url),
       { type: 'module' },
     );
-    workerRef.current = worker;
+    workerRef.current = w;
 
-    worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
+    w.onmessage = (event: MessageEvent<WorkerOutbound>) => {
       const msg = event.data;
       if (msg.type === 'STATUS') {
         setStatus(msg.status);
         if (msg.status === 'loading' && msg.progress) {
-          setLoadProgress((prev) => mergeProgress(prev, msg.progress!));
+          setLoadProgress((prev) => mergeProgress(prev, msg.progress!, loadStartedAtRef.current));
         }
         if (msg.status === 'ready') {
           setLoadProgress((prev) => ({ ...prev, progress: 100 }));
         }
         if (msg.status === 'error') {
           setErrorMsg(msg.message);
+          pendingGenerationRef.current = false;
         }
       } else if (msg.type === 'REGIONS') {
-        setRegions(msg.regions);
+        region.set(toClientRegions(msg.regions));
       }
     };
 
     return () => {
-      worker.terminate();
+      w.terminate();
       workerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When the model becomes ready and we have a pending generation, run it.
+  useEffect(() => {
+    if (status === 'ready' && pendingGenerationRef.current && bitmap && workerRef.current) {
+      pendingGenerationRef.current = false;
+      triggerGenerate(bitmap);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, bitmap]);
 
   useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
     };
-  }, [previewUrl]);
+  }, [imageUrl]);
 
-  const isLoading = status === 'loading';
-  const isReady = status === 'ready';
-  const isGenerating = status === 'generating';
-  const canGenerate = isReady && bitmap !== null;
-
-  const progressPct = useMemo(() => {
-    if (status === 'ready') return 100;
-    if (typeof loadProgress.progress === 'number') {
-      return Math.min(100, Math.max(0, loadProgress.progress));
-    }
-    if (loadProgress.loaded && loadProgress.total) {
-      return Math.min(100, (loadProgress.loaded / loadProgress.total) * 100);
-    }
-    return 0;
-  }, [status, loadProgress]);
-
-  const handleLoad = () => {
+  // ───── Image intake ─────────────────────────────────────────────────────
+  const intakeFile = useCallback(async (file: File) => {
     setErrorMsg(null);
+    const url = URL.createObjectURL(file);
+    const bmp = await createImageBitmap(file);
+    setBitmap((prev) => {
+      prev?.close?.();
+      return bmp;
+    });
+    setImageUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+    setImageName(file.name);
+    setImageDims({ w: bmp.width, h: bmp.height });
+    setSelectedId(null);
+    region.set([]);
+    autoStart(bmp);
+  }, [region]);
+
+  const intakeFromSrc = useCallback(async (src: string) => {
+    setErrorMsg(null);
+    const resp = await fetch(src);
+    const blob = await resp.blob();
+    const name = src.split('/').pop() ?? 'sample.png';
+    const file = new File([blob], name, { type: blob.type || 'image/png' });
+    await intakeFile(file);
+  }, [intakeFile]);
+
+  const autoStart = (bmp: ImageBitmap) => {
+    if (status === 'ready') {
+      triggerGenerate(bmp);
+    } else if (status === 'idle' || status === 'error') {
+      pendingGenerationRef.current = true;
+      triggerLoad();
+    } else if (status === 'loading') {
+      pendingGenerationRef.current = true;
+    } else if (status === 'generating') {
+      // The current run won't see this bitmap; queue it.
+      pendingGenerationRef.current = true;
+    }
+  };
+
+  const triggerLoad = () => {
     setStatus('loading');
+    loadStartedAtRef.current = Date.now();
     const msg: WorkerInbound = { type: 'LOAD' };
     workerRef.current?.postMessage(msg);
   };
 
-  const handleGenerate = () => {
-    if (!bitmap || !workerRef.current) return;
-    setErrorMsg(null);
-    setRegions([]);
+  const triggerGenerate = (bmp: ImageBitmap) => {
+    if (!workerRef.current) return;
     setStatus('generating');
     const id = String(++generationIdRef.current);
-    createImageBitmap(bitmap).then((clone) => {
+    createImageBitmap(bmp).then((clone) => {
       const msg: WorkerInbound = {
         type: 'GENERATE',
         id,
@@ -115,102 +179,216 @@ function App() {
     });
   };
 
-  const acceptFile = async (file: File | null) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setErrorMsg('Please drop an image file.');
-      return;
+  // ───── Derived state ────────────────────────────────────────────────────
+  const counts = useMemo(() => {
+    const c: Partial<Record<PIICategory, number>> = {};
+    for (const r of region.regions) c[r.category] = (c[r.category] ?? 0) + 1;
+    return c;
+  }, [region.regions]);
+
+  const visibleRegions = useMemo(
+    () => region.regions.filter((r) => enabled[r.category]),
+    [region.regions, enabled],
+  );
+
+  const selectedRegion = useMemo(
+    () => region.regions.find((r) => r.id === selectedId) ?? null,
+    [region.regions, selectedId],
+  );
+  const selectedIndex = useMemo(
+    () => (selectedRegion ? region.regions.indexOf(selectedRegion) : -1),
+    [region.regions, selectedRegion],
+  );
+
+  // ───── Toolbar handlers ─────────────────────────────────────────────────
+  const onCopy = useCallback(async () => {
+    if (!bitmap) return;
+    try {
+      const blob = await renderRedacted({ mode, bitmap, regions: visibleRegions });
+      await copyImageBlobToClipboard(blob);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
     }
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    const url = URL.createObjectURL(file);
-    const bmp = await createImageBitmap(file);
-    setBitmap(bmp);
-    setPreviewUrl(url);
-    setRegions([]);
-  };
+  }, [bitmap, mode, visibleRegions]);
+
+  const onDownload = useCallback(async () => {
+    if (!bitmap) return;
+    try {
+      const blob = await renderRedacted({ mode, bitmap, regions: visibleRegions });
+      const base = imageName.replace(/\.[^.]+$/, '');
+      downloadBlob(blob, `${base || 'vanish'}-redacted.png`);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    }
+  }, [bitmap, mode, visibleRegions, imageName]);
+
+  // ───── Keyboard shortcuts ───────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        region.undo();
+      } else if ((k === 'z' && e.shiftKey) || k === 'y') {
+        e.preventDefault();
+        region.redo();
+      } else if (k === 'c' && bitmap) {
+        // Don't intercept regular text copy inside inputs.
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        e.preventDefault();
+        void onCopy();
+      } else if (k === 'd' && bitmap) {
+        e.preventDefault();
+        void onDownload();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [bitmap, onCopy, onDownload, region]);
+
+  // ───── UI ───────────────────────────────────────────────────────────────
+  const isLanding = !bitmap;
+  const isModelLoading = status === 'loading';
+  const showLoadingInCanvas = isModelLoading && !bitmap;
 
   return (
-    <main className="app">
-      <header className="header">
-        <h1>Vanish</h1>
-        <p className="subtitle">Phase 3 build in progress.</p>
-      </header>
-
-      <section className="panel">
-        <button type="button" onClick={handleLoad} disabled={isLoading || isReady || isGenerating}>
-          {isReady ? 'Model ready' : isLoading ? 'Loading…' : 'Load model'}
-        </button>
-        <div className="progress" aria-hidden={!isLoading && !isReady}>
-          <div className="bar" style={{ width: `${progressPct}%` }} />
-        </div>
-        <div className="progress-text">
-          {isLoading && loadProgress.file && (
-            <code>{loadProgress.file}</code>
-          )}
-          {isLoading && loadProgress.loaded != null && loadProgress.total != null && (
-            <span>
-              {' '}{formatBytes(loadProgress.loaded)} / {formatBytes(loadProgress.total)} · {progressPct.toFixed(1)}%
-            </span>
-          )}
-        </div>
-      </section>
-
-      <section
-        className={`dropzone ${dragOver ? 'over' : ''} ${previewUrl ? 'has-image' : ''}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          void acceptFile(e.dataTransfer.files?.[0] ?? null);
-        }}
+    <div className="min-h-screen bg-page-bg flex items-center justify-center p-10">
+      <div
+        className="bg-bg border border-border w-full h-[900px] max-w-[1440px] grid"
+        style={{ gridTemplateRows: '48px 1fr 56px' }}
       >
-        {previewUrl ? (
-          <img className="preview" src={previewUrl} alt="dropped" />
-        ) : (
-          <div className="hint">
-            Drag an image here, or
-            <label className="file-label">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => void acceptFile(e.target.files?.[0] ?? null)}
+        <TopBar
+          fileName={imageName || undefined}
+          fileSize={imageDims ? `${imageDims.w} × ${imageDims.h}` : undefined}
+          status={status}
+          theme={theme}
+          onThemeToggle={toggleTheme}
+        />
+
+        <div className="grid min-h-0" style={{ gridTemplateColumns: '220px 1fr 280px' }}>
+          <CategoryRail
+            counts={counts}
+            enabled={enabled}
+            totalRegions={region.regions.length}
+            activeCategory={selectedRegion?.category ?? null}
+            hoveredCategory={hoveredCategory}
+            onToggle={(cat) => setEnabled((prev) => ({ ...prev, [cat]: !prev[cat] }))}
+            onHover={setHoveredCategory}
+            onAddManual={() => {
+              // Placeholder: drops a small region at the center of the image.
+              if (!imageDims) return;
+              region.add({
+                id: `m-${Date.now().toString(36)}`,
+                source: 'manual',
+                category: 'free_text_secret',
+                bbox: { x: 0.4, y: 0.4, w: 0.2, h: 0.06 },
+                text: '',
+                confidence: 1,
+                replacement: '[redacted]',
+              });
+            }}
+            isEmpty={region.regions.length === 0}
+          />
+
+          <div className="bg-surface-1 relative overflow-hidden border-r border-border">
+            {isLanding ? (
+              <Dropzone samples={SAMPLES} onFile={intakeFile} onSample={intakeFromSrc} />
+            ) : showLoadingInCanvas ? (
+              <ModelLoadingState
+                percent={loadProgress.progress ?? 0}
+                loadedBytes={loadProgress.loaded}
+                totalBytes={loadProgress.total}
+                bytesPerSecond={loadProgress.bytesPerSecond}
+                etaSeconds={loadProgress.etaSeconds}
               />
-              <span>choose a file</span>
-            </label>
+            ) : isModelLoading ? (
+              <ModelLoadingState
+                percent={loadProgress.progress ?? 0}
+                loadedBytes={loadProgress.loaded}
+                totalBytes={loadProgress.total}
+                bytesPerSecond={loadProgress.bytesPerSecond}
+                etaSeconds={loadProgress.etaSeconds}
+              />
+            ) : imageUrl && imageDims ? (
+              <RedactionCanvas
+                imageUrl={imageUrl}
+                imageWidth={imageDims.w}
+                imageHeight={imageDims.h}
+                regions={visibleRegions}
+                selectedId={selectedId}
+                hoveredCategory={hoveredCategory}
+                enabled={enabled}
+                onSelect={setSelectedId}
+                onHoverBox={setHoveredCategory}
+              />
+            ) : null}
           </div>
-        )}
-      </section>
 
-      <button type="button" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
-        {isGenerating ? 'Detecting…' : 'Detect PII'}
-      </button>
+          {isLanding ? (
+            <HowItWorksCard />
+          ) : selectedRegion ? (
+            <DetailPanel
+              region={selectedRegion}
+              index={selectedIndex}
+              onChangeReplacement={(id, replacement) => region.update(id, { replacement })}
+              onDelete={(id) => {
+                region.remove(id);
+                if (selectedId === id) setSelectedId(null);
+              }}
+              onLockToggle={(id) => {
+                const target = region.regions.find((r) => r.id === id);
+                if (target) region.update(id, { locked: !target.locked });
+              }}
+            />
+          ) : (
+            <DetailPanelEmpty />
+          )}
+        </div>
 
-      {regions.length > 0 && (
-        <section className="panel">
-          {regions.length} region(s) detected.
-        </section>
-      )}
+        <ExportBar
+          mode={mode}
+          onMode={setMode}
+          onCopy={onCopy}
+          onDownload={onDownload}
+          canExport={!!bitmap}
+        />
+      </div>
 
       {errorMsg && (
-        <section className="panel error">
-          <strong>Error:</strong> {errorMsg}
-        </section>
+        <div
+          role="alert"
+          className="fixed bottom-6 right-6 max-w-[420px] bg-surface-2 border border-cat-key text-text-1 px-4 py-3 font-mono text-[12px]"
+        >
+          <strong className="text-cat-key">Error:</strong> {errorMsg}
+        </div>
       )}
-    </main>
+    </div>
   );
 }
 
-function mergeProgress(prev: LoadProgress, info: ProgressInfo): LoadProgress {
-  return {
+function mergeProgress(
+  prev: LoadProgress,
+  info: ProgressInfo,
+  startedAt: number,
+): LoadProgress {
+  const next: LoadProgress = {
     file: info.file ?? info.name ?? prev.file,
     loaded: info.loaded ?? prev.loaded,
     total: info.total ?? prev.total,
     progress: info.progress ?? prev.progress,
   };
+  if (next.loaded != null && next.total != null && startedAt > 0) {
+    const elapsed = (Date.now() - startedAt) / 1000;
+    if (elapsed > 1) {
+      const bps = next.loaded / elapsed;
+      next.bytesPerSecond = bps;
+      const remaining = next.total - next.loaded;
+      next.etaSeconds = remaining > 0 && bps > 0 ? remaining / bps : 0;
+    }
+  }
+  return next;
 }
 
 export default App;
