@@ -22,6 +22,12 @@
     outline: 2px solid var(--lime);
     outline-offset: 2px;
   }
+  /* SVG focusable children: outline works inconsistently across browsers,
+     so we also add a high-contrast text-1 stroke ring via a CSS variable. */
+  svg [tabindex]:focus-visible {
+    outline: 2px solid var(--lime);
+    outline-offset: 2px;
+  }
 }
 
 @layer utilities {

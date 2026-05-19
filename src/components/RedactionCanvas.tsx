@@ -243,7 +243,7 @@ export function RedactionCanvas({
       >
         <img
           src={imageUrl}
-          alt=""
+          alt="Loaded screenshot — bounding boxes overlay detected PII regions"
           draggable={false}
           className="block w-full h-full select-none pointer-events-none"
         />
