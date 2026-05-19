@@ -15,20 +15,6 @@ type LoadProgress = {
   progress?: number;
 };
 
-type DebugState = {
-  regions: PIIRegion[];
-  rawModelText: string;
-  ocrText: string;
-  modelParseError?: string;
-  ocrError?: string;
-};
-
-const EMPTY_DEBUG: DebugState = {
-  regions: [],
-  rawModelText: '',
-  ocrText: '',
-};
-
 function formatBytes(n?: number): string {
   if (!n || !Number.isFinite(n)) return '';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -48,9 +34,7 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState('');
-  const [tokens, setTokens] = useState('');
-  const [debug, setDebug] = useState<DebugState>(EMPTY_DEBUG);
+  const [regions, setRegions] = useState<PIIRegion[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const generationIdRef = useRef(0);
 
@@ -74,17 +58,8 @@ function App() {
         if (msg.status === 'error') {
           setErrorMsg(msg.message);
         }
-        if (msg.status === 'generating') {
-          setTokens((prev) => prev + msg.token);
-        }
       } else if (msg.type === 'REGIONS') {
-        setDebug({
-          regions: msg.regions,
-          rawModelText: msg.rawModelText,
-          ocrText: msg.ocrText,
-          modelParseError: msg.modelParseError,
-          ocrError: msg.ocrError,
-        });
+        setRegions(msg.regions);
       }
     };
 
@@ -126,8 +101,7 @@ function App() {
   const handleGenerate = () => {
     if (!bitmap || !workerRef.current) return;
     setErrorMsg(null);
-    setTokens('');
-    setDebug(EMPTY_DEBUG);
+    setRegions([]);
     setStatus('generating');
     const id = String(++generationIdRef.current);
     createImageBitmap(bitmap).then((clone) => {
@@ -135,7 +109,7 @@ function App() {
         type: 'GENERATE',
         id,
         image: clone,
-        prompt,
+        prompt: '',
         maxNewTokens: 1024,
       };
       workerRef.current!.postMessage(msg, [clone]);
@@ -153,87 +127,32 @@ function App() {
     const bmp = await createImageBitmap(file);
     setBitmap(bmp);
     setPreviewUrl(url);
-    setDebug(EMPTY_DEBUG);
-    setTokens('');
-  };
-
-  const handleResetCache = async () => {
-    if (
-      !confirm(
-        'Clear cached Gemma 4 model and reload? The next load will re-download ~500 MB.',
-      )
-    ) {
-      return;
-    }
-    try {
-      if (typeof caches !== 'undefined') {
-        const names = await caches.keys();
-        await Promise.all(names.map((n) => caches.delete(n)));
-      }
-      const dbs = await indexedDB.databases?.();
-      if (dbs) {
-        await Promise.all(
-          dbs
-            .filter((d) => !!d.name)
-            .map(
-              (d) =>
-                new Promise<void>((resolve) => {
-                  const req = indexedDB.deleteDatabase(d.name!);
-                  req.onsuccess = () => resolve();
-                  req.onerror = () => resolve();
-                  req.onblocked = () => resolve();
-                }),
-            ),
-        );
-      }
-    } finally {
-      location.reload();
-    }
+    setRegions([]);
   };
 
   return (
     <main className="app">
       <header className="header">
-        <h1>Vanish · Phase 2</h1>
-        <p className="subtitle">
-          Gemma 4 E2B + regex backstop + OCR, all in this tab. Nothing leaves your device.
-        </p>
+        <h1>Vanish</h1>
+        <p className="subtitle">Phase 3 build in progress.</p>
       </header>
 
       <section className="panel">
-        <div className="row">
-          <button
-            type="button"
-            onClick={handleLoad}
-            disabled={isLoading || isReady || isGenerating}
-          >
-            {isReady
-              ? 'Model ready'
-              : isLoading
-                ? 'Loading…'
-                : 'Load model'}
-          </button>
-          <button type="button" className="ghost" onClick={handleResetCache}>
-            Reset model cache
-          </button>
-        </div>
+        <button type="button" onClick={handleLoad} disabled={isLoading || isReady || isGenerating}>
+          {isReady ? 'Model ready' : isLoading ? 'Loading…' : 'Load model'}
+        </button>
         <div className="progress" aria-hidden={!isLoading && !isReady}>
           <div className="bar" style={{ width: `${progressPct}%` }} />
         </div>
         <div className="progress-text">
-          {isLoading && (
-            <>
-              {loadProgress.file ? <code>{loadProgress.file}</code> : 'Initializing…'}{' '}
-              {loadProgress.loaded != null && loadProgress.total != null && (
-                <span>
-                  {formatBytes(loadProgress.loaded)} / {formatBytes(loadProgress.total)}
-                </span>
-              )}
-              <span> · {progressPct.toFixed(1)}%</span>
-            </>
+          {isLoading && loadProgress.file && (
+            <code>{loadProgress.file}</code>
           )}
-          {isReady && <span>Ready.</span>}
-          {isGenerating && <span>Generating…</span>}
+          {isLoading && loadProgress.loaded != null && loadProgress.total != null && (
+            <span>
+              {' '}{formatBytes(loadProgress.loaded)} / {formatBytes(loadProgress.total)} · {progressPct.toFixed(1)}%
+            </span>
+          )}
         </div>
       </section>
 
@@ -247,8 +166,7 @@ function App() {
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          const file = e.dataTransfer.files?.[0] ?? null;
-          void acceptFile(file);
+          void acceptFile(e.dataTransfer.files?.[0] ?? null);
         }}
       >
         {previewUrl ? (
@@ -268,65 +186,15 @@ function App() {
         )}
       </section>
 
-      <section className="panel">
-        <label className="label" htmlFor="prompt">
-          Optional additional instructions (leave blank for default PII detection)
-        </label>
-        <textarea
-          id="prompt"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={2}
-          placeholder="e.g. Also flag any pricing or revenue figures."
-        />
-        <div className="row">
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={!canGenerate || isGenerating}
-          >
-            {isGenerating ? 'Generating…' : 'Detect PII'}
-          </button>
-        </div>
-      </section>
+      <button type="button" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
+        {isGenerating ? 'Detecting…' : 'Detect PII'}
+      </button>
 
-      <section className="debug">
-        <div className="debug-pane">
-          <div className="debug-head">
-            Raw model output
-            {debug.modelParseError && (
-              <span className="debug-tag bad">parse error</span>
-            )}
-          </div>
-          <pre className="debug-body">
-            {debug.rawModelText || (isGenerating ? tokens || '…' : '—')}
-          </pre>
-          {debug.modelParseError && (
-            <div className="debug-error">{debug.modelParseError}</div>
-          )}
-        </div>
-
-        <div className="debug-pane">
-          <div className="debug-head">
-            OCR text
-            {debug.ocrError && <span className="debug-tag bad">ocr error</span>}
-          </div>
-          <pre className="debug-body">{debug.ocrText || '—'}</pre>
-          {debug.ocrError && <div className="debug-error">{debug.ocrError}</div>}
-        </div>
-
-        <div className="debug-pane">
-          <div className="debug-head">
-            Merged regions
-            <span className="debug-tag">{debug.regions.length}</span>
-          </div>
-          <pre className="debug-body">
-            {debug.regions.length === 0
-              ? '—'
-              : JSON.stringify(debug.regions, null, 2)}
-          </pre>
-        </div>
-      </section>
+      {regions.length > 0 && (
+        <section className="panel">
+          {regions.length} region(s) detected.
+        </section>
+      )}
 
       {errorMsg && (
         <section className="panel error">
