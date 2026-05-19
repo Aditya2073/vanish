@@ -254,11 +254,11 @@ function App() {
   const showLoadingInCanvas = isModelLoading && !bitmap;
 
   return (
-    <div className="min-h-screen bg-page-bg md:flex md:items-center md:justify-center md:p-10">
+    <div className="h-screen bg-page-bg">
       <div
         role="application"
         aria-label="Vanish PII redaction editor"
-        className="bg-bg border-0 md:border md:border-border w-full md:max-w-[1440px] h-screen md:h-[900px] grid"
+        className="bg-bg w-full h-full grid"
         style={{ gridTemplateRows: '48px 1fr 56px' }}
       >
         <TopBar

@@ -40,7 +40,7 @@ function StatusPill({ status }: { status: WorkerStatus | 'idle' }) {
       <span className="font-sans text-[12px] font-medium leading-none text-text-1">
         {labelByStatus[status]}
       </span>
-      <span className="font-mono text-[11px] leading-none text-text-3">Gemma 4 E2B</span>
+      <span className="font-mono text-[11px] leading-none text-text-2">Gemma 4 E2B</span>
     </div>
   );
 }
@@ -56,11 +56,11 @@ export function TopBar({ fileName, fileSize, status, theme, onThemeToggle }: Pro
         {fileName ? (
           <>
             <span>{fileName}</span>
-            <span className="text-text-3">·</span>
-            <span className="text-text-3">{fileSize ?? ''}</span>
+            <span aria-hidden className="text-text-2">·</span>
+            <span className="text-text-2">{fileSize ?? ''}</span>
           </>
         ) : (
-          <span className="text-text-3">No file loaded</span>
+          <span className="text-text-2">No file loaded</span>
         )}
       </div>
       <div className="flex items-center gap-4">
