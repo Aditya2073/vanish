@@ -14,6 +14,11 @@ import type {
   WorkerInbound,
   WorkerOutbound,
 } from '../types';
+import type { PIIRegion } from '../schema';
+import { ModelOutputParseError, PII_SYSTEM_PROMPT, parseModelResponse } from '../prompt';
+import { detectRegexPII } from '../regex-pii';
+import { mergeRegions } from '../merge';
+import { runOCR } from '../ocr';
 
 const MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
 const VISION_TOKEN_BUDGET = 140;
@@ -60,26 +65,30 @@ async function ensureLoaded(): Promise<void> {
   }
 }
 
-async function bitmapToRawImage(bitmap: ImageBitmap): Promise<RawImage> {
+function bitmapToCanvas(bitmap: ImageBitmap): OffscreenCanvas {
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
   const c = canvas.getContext('2d');
   if (!c) throw new Error('OffscreenCanvas 2D context unavailable');
   c.drawImage(bitmap, 0, 0);
-  return RawImage.fromCanvas(canvas);
+  return canvas;
 }
 
-async function handleGenerate(req: Extract<WorkerInbound, { type: 'GENERATE' }>) {
-  await ensureLoaded();
+async function runModel(
+  req: Extract<WorkerInbound, { type: 'GENERATE' }>,
+  image: RawImage,
+): Promise<string> {
   if (!processor || !model) throw new Error('Model not initialized');
 
-  const image = await bitmapToRawImage(req.image);
+  const userText = req.prompt && req.prompt.trim().length > 0
+    ? `${PII_SYSTEM_PROMPT}\n\nAdditional instructions:\n${req.prompt}`
+    : PII_SYSTEM_PROMPT;
 
   const messages = [
     {
       role: 'user',
       content: [
         { type: 'image' },
-        { type: 'text', text: req.prompt },
+        { type: 'text', text: userText },
       ],
     },
   ];
@@ -101,11 +110,13 @@ async function handleGenerate(req: Extract<WorkerInbound, { type: 'GENERATE' }>)
     vision_token_budget: VISION_TOKEN_BUDGET,
   });
 
+  let accumulated = '';
   const tokenizer = (processor as unknown as { tokenizer: ConstructorParameters<typeof TextStreamer>[0] }).tokenizer;
   const streamer = new TextStreamer(tokenizer, {
     skip_prompt: true,
     skip_special_tokens: true,
     callback_function: (text: string) => {
+      accumulated += text;
       post({ type: 'STATUS', status: 'generating', id: req.id, token: text });
     },
   });
@@ -119,9 +130,60 @@ async function handleGenerate(req: Extract<WorkerInbound, { type: 'GENERATE' }>)
     streamer,
   });
 
-  // Streamer has already delivered the full text via callbacks; we send a
-  // RESULT marker so the main thread can finalize state.
-  post({ type: 'RESULT', id: req.id, text: '' });
+  return accumulated;
+}
+
+async function handleGenerate(req: Extract<WorkerInbound, { type: 'GENERATE' }>) {
+  await ensureLoaded();
+  const canvas = bitmapToCanvas(req.image);
+  const image = RawImage.fromCanvas(canvas);
+
+  const [modelSettled, ocrSettled] = await Promise.allSettled([
+    runModel(req, image),
+    runOCR(canvas),
+  ]);
+
+  const rawModelText = modelSettled.status === 'fulfilled' ? modelSettled.value : '';
+  const ocrResult = ocrSettled.status === 'fulfilled' ? ocrSettled.value : null;
+
+  let modelRegions: PIIRegion[] = [];
+  let modelParseError: string | undefined;
+  if (rawModelText) {
+    try {
+      modelRegions = parseModelResponse(rawModelText);
+    } catch (err) {
+      modelParseError =
+        err instanceof ModelOutputParseError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+    }
+  } else if (modelSettled.status === 'rejected') {
+    modelParseError = modelSettled.reason instanceof Error
+      ? modelSettled.reason.message
+      : String(modelSettled.reason);
+  }
+
+  const regexRegions = ocrResult ? detectRegexPII(ocrResult) : [];
+  const merged = mergeRegions(modelRegions, regexRegions);
+
+  const ocrError =
+    ocrSettled.status === 'rejected'
+      ? ocrSettled.reason instanceof Error
+        ? ocrSettled.reason.message
+        : String(ocrSettled.reason)
+      : undefined;
+
+  post({
+    type: 'REGIONS',
+    id: req.id,
+    regions: merged,
+    rawModelText,
+    ocrText: ocrResult?.text ?? '',
+    modelParseError,
+    ocrError,
+  });
 }
 
 ctx.onmessage = async (event: MessageEvent<WorkerInbound>) => {

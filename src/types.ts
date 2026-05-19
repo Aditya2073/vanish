@@ -19,9 +19,19 @@ export type ProgressInfo = {
   total?: number;
 };
 
+import type { PIIRegion } from './schema';
+
 export type WorkerOutbound =
   | { type: 'STATUS'; status: 'loading'; progress?: ProgressInfo }
   | { type: 'STATUS'; status: 'ready' }
   | { type: 'STATUS'; status: 'generating'; id: string; token: string }
   | { type: 'STATUS'; status: 'error'; message: string; id?: string }
-  | { type: 'RESULT'; id: string; text: string };
+  | {
+      type: 'REGIONS';
+      id: string;
+      regions: PIIRegion[];
+      rawModelText: string;
+      ocrText: string;
+      modelParseError?: string;
+      ocrError?: string;
+    };
