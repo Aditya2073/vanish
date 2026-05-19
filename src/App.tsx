@@ -5,6 +5,7 @@ import type {
   WorkerOutbound,
   WorkerStatus,
 } from './types';
+import type { PIIRegion } from './schema';
 import './App.css';
 
 type LoadProgress = {
@@ -12,6 +13,20 @@ type LoadProgress = {
   loaded?: number;
   total?: number;
   progress?: number;
+};
+
+type DebugState = {
+  regions: PIIRegion[];
+  rawModelText: string;
+  ocrText: string;
+  modelParseError?: string;
+  ocrError?: string;
+};
+
+const EMPTY_DEBUG: DebugState = {
+  regions: [],
+  rawModelText: '',
+  ocrText: '',
 };
 
 function formatBytes(n?: number): string {
@@ -33,8 +48,9 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState('Describe this image in one sentence.');
-  const [output, setOutput] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [tokens, setTokens] = useState('');
+  const [debug, setDebug] = useState<DebugState>(EMPTY_DEBUG);
   const [dragOver, setDragOver] = useState(false);
   const generationIdRef = useRef(0);
 
@@ -59,8 +75,16 @@ function App() {
           setErrorMsg(msg.message);
         }
         if (msg.status === 'generating') {
-          setOutput((prev) => prev + msg.token);
+          setTokens((prev) => prev + msg.token);
         }
+      } else if (msg.type === 'REGIONS') {
+        setDebug({
+          regions: msg.regions,
+          rawModelText: msg.rawModelText,
+          ocrText: msg.ocrText,
+          modelParseError: msg.modelParseError,
+          ocrError: msg.ocrError,
+        });
       }
     };
 
@@ -79,7 +103,7 @@ function App() {
   const isLoading = status === 'loading';
   const isReady = status === 'ready';
   const isGenerating = status === 'generating';
-  const canGenerate = isReady && bitmap !== null && prompt.trim().length > 0;
+  const canGenerate = isReady && bitmap !== null;
 
   const progressPct = useMemo(() => {
     if (status === 'ready') return 100;
@@ -102,18 +126,17 @@ function App() {
   const handleGenerate = () => {
     if (!bitmap || !workerRef.current) return;
     setErrorMsg(null);
-    setOutput('');
+    setTokens('');
+    setDebug(EMPTY_DEBUG);
     setStatus('generating');
     const id = String(++generationIdRef.current);
-    // Note: ImageBitmap is transferable. We clone via createImageBitmap so we
-    // can keep showing the preview after transferring to the worker.
     createImageBitmap(bitmap).then((clone) => {
       const msg: WorkerInbound = {
         type: 'GENERATE',
         id,
         image: clone,
         prompt,
-        maxNewTokens: 128,
+        maxNewTokens: 1024,
       };
       workerRef.current!.postMessage(msg, [clone]);
     });
@@ -130,6 +153,8 @@ function App() {
     const bmp = await createImageBitmap(file);
     setBitmap(bmp);
     setPreviewUrl(url);
+    setDebug(EMPTY_DEBUG);
+    setTokens('');
   };
 
   const handleResetCache = async () => {
@@ -169,9 +194,9 @@ function App() {
   return (
     <main className="app">
       <header className="header">
-        <h1>Vanish · Phase 1</h1>
+        <h1>Vanish · Phase 2</h1>
         <p className="subtitle">
-          Gemma 4 E2B on WebGPU, in this tab. Nothing leaves your device.
+          Gemma 4 E2B + regex backstop + OCR, all in this tab. Nothing leaves your device.
         </p>
       </header>
 
@@ -245,13 +270,14 @@ function App() {
 
       <section className="panel">
         <label className="label" htmlFor="prompt">
-          Prompt
+          Optional additional instructions (leave blank for default PII detection)
         </label>
         <textarea
           id="prompt"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          rows={3}
+          rows={2}
+          placeholder="e.g. Also flag any pricing or revenue figures."
         />
         <div className="row">
           <button
@@ -259,14 +285,47 @@ function App() {
             onClick={handleGenerate}
             disabled={!canGenerate || isGenerating}
           >
-            {isGenerating ? 'Generating…' : 'Generate'}
+            {isGenerating ? 'Generating…' : 'Detect PII'}
           </button>
         </div>
       </section>
 
-      <section className="panel">
-        <label className="label">Output</label>
-        <pre className="output">{output || (isGenerating ? '…' : '')}</pre>
+      <section className="debug">
+        <div className="debug-pane">
+          <div className="debug-head">
+            Raw model output
+            {debug.modelParseError && (
+              <span className="debug-tag bad">parse error</span>
+            )}
+          </div>
+          <pre className="debug-body">
+            {debug.rawModelText || (isGenerating ? tokens || '…' : '—')}
+          </pre>
+          {debug.modelParseError && (
+            <div className="debug-error">{debug.modelParseError}</div>
+          )}
+        </div>
+
+        <div className="debug-pane">
+          <div className="debug-head">
+            OCR text
+            {debug.ocrError && <span className="debug-tag bad">ocr error</span>}
+          </div>
+          <pre className="debug-body">{debug.ocrText || '—'}</pre>
+          {debug.ocrError && <div className="debug-error">{debug.ocrError}</div>}
+        </div>
+
+        <div className="debug-pane">
+          <div className="debug-head">
+            Merged regions
+            <span className="debug-tag">{debug.regions.length}</span>
+          </div>
+          <pre className="debug-body">
+            {debug.regions.length === 0
+              ? '—'
+              : JSON.stringify(debug.regions, null, 2)}
+          </pre>
+        </div>
       </section>
 
       {errorMsg && (

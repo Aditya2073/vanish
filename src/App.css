@@ -203,3 +203,77 @@ textarea:focus {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.debug {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .debug {
+    grid-template-columns: 1fr;
+  }
+}
+
+.debug-pane {
+  background: #16181a;
+  border: 1px solid #2a2e33;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  overflow: hidden;
+}
+
+.debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2e33;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9aa0a6;
+  background: #0e0f10;
+}
+
+.debug-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: #c8ff00;
+  background: rgba(200, 255, 0, 0.08);
+  border: 1px solid rgba(200, 255, 0, 0.3);
+  border-radius: 999px;
+  padding: 1px 8px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.debug-tag.bad {
+  color: #ff8a80;
+  background: rgba(255, 138, 128, 0.08);
+  border-color: rgba(255, 138, 128, 0.3);
+}
+
+.debug-body {
+  margin: 0;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  flex: 1;
+  overflow: auto;
+  max-height: 420px;
+}
+
+.debug-error {
+  border-top: 1px solid #5b2a2a;
+  background: #2a1414;
+  color: #f4c7c7;
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
