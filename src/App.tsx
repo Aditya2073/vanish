@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ProgressInfo, WorkerInbound, WorkerOutbound, WorkerStatus } from './types';
 import type { PIICategory } from './schema';
-import { CATEGORY_ORDER } from './lib/categories';
+import { CATEGORY_META, CATEGORY_ORDER } from './lib/categories';
 import { toClientRegions } from './lib/regions';
 import { copyImageBlobToClipboard, downloadBlob, renderRedacted } from './lib/export';
 import { useRedaction } from './hooks/useRedaction';
@@ -254,9 +254,9 @@ function App() {
   const showLoadingInCanvas = isModelLoading && !bitmap;
 
   return (
-    <div className="min-h-screen bg-page-bg flex items-center justify-center p-10">
+    <div className="min-h-screen bg-page-bg md:flex md:items-center md:justify-center md:p-10">
       <div
-        className="bg-bg border border-border w-full h-[900px] max-w-[1440px] grid"
+        className="bg-bg border-0 md:border md:border-border w-full md:max-w-[1440px] h-screen md:h-[900px] grid"
         style={{ gridTemplateRows: '48px 1fr 56px' }}
       >
         <TopBar
@@ -267,30 +267,56 @@ function App() {
           onThemeToggle={toggleTheme}
         />
 
-        <div className="grid min-h-0" style={{ gridTemplateColumns: '220px 1fr 280px' }}>
-          <CategoryRail
-            counts={counts}
-            enabled={enabled}
-            totalRegions={region.regions.length}
-            activeCategory={selectedRegion?.category ?? null}
-            hoveredCategory={hoveredCategory}
-            onToggle={(cat) => setEnabled((prev) => ({ ...prev, [cat]: !prev[cat] }))}
-            onHover={setHoveredCategory}
-            onAddManual={() => {
-              // Placeholder: drops a small region at the center of the image.
-              if (!imageDims) return;
-              region.add({
-                id: `m-${Date.now().toString(36)}`,
-                source: 'manual',
-                category: 'free_text_secret',
-                bbox: { x: 0.4, y: 0.4, w: 0.2, h: 0.06 },
-                text: '',
-                confidence: 1,
-                replacement: '[redacted]',
-              });
-            }}
-            isEmpty={region.regions.length === 0}
-          />
+        <div className="grid min-h-0 md:[grid-template-columns:220px_1fr_280px] [grid-template-columns:1fr] [grid-template-rows:auto_1fr] md:[grid-template-rows:1fr]">
+          <div className="hidden md:block">
+            <CategoryRail
+              counts={counts}
+              enabled={enabled}
+              totalRegions={region.regions.length}
+              activeCategory={selectedRegion?.category ?? null}
+              hoveredCategory={hoveredCategory}
+              onToggle={(cat) => setEnabled((prev) => ({ ...prev, [cat]: !prev[cat] }))}
+              onHover={setHoveredCategory}
+              onAddManual={() => {
+                if (!imageDims) return;
+                region.add({
+                  id: `m-${Date.now().toString(36)}`,
+                  source: 'manual',
+                  category: 'free_text_secret',
+                  bbox: { x: 0.4, y: 0.4, w: 0.2, h: 0.06 },
+                  text: '',
+                  confidence: 1,
+                  replacement: '[redacted]',
+                });
+              }}
+              isEmpty={region.regions.length === 0}
+            />
+          </div>
+          {/* Mobile: horizontal category chip strip below the top bar */}
+          {region.regions.length > 0 && (
+            <div className="md:hidden h-11 border-b border-border flex items-center gap-1.5 px-4 overflow-x-auto bg-bg">
+              {CATEGORY_ORDER.filter((c) => (counts[c] ?? 0) > 0).map((cat) => {
+                const meta = CATEGORY_META[cat];
+                const on = enabled[cat];
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setEnabled((prev) => ({ ...prev, [cat]: !prev[cat] }))}
+                    aria-pressed={on}
+                    style={{ color: meta.cssVar }}
+                    className={`inline-flex items-center gap-2 h-7 px-2.5 border rounded-full flex-none ${
+                      on ? 'border-border-strong bg-surface-2' : 'border-border bg-surface-1 opacity-50'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-sm" style={{ background: 'currentColor' }} aria-hidden />
+                    <span className="font-sans text-[12px] font-medium leading-none text-text-1">{meta.shortLabel}</span>
+                    <span className="font-mono text-[11px] leading-none text-text-2">{counts[cat]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div className="bg-surface-1 relative overflow-hidden border-r border-border">
             {isLanding ? (
@@ -348,24 +374,45 @@ function App() {
             ) : null}
           </div>
 
-          {isLanding ? (
-            <HowItWorksCard />
-          ) : selectedRegion ? (
-            <DetailPanel
-              region={selectedRegion}
-              index={selectedIndex}
-              onChangeReplacement={(id, replacement) => region.update(id, { replacement })}
-              onDelete={(id) => {
-                region.remove(id);
-                if (selectedId === id) setSelectedId(null);
-              }}
-              onLockToggle={(id) => {
-                const target = region.regions.find((r) => r.id === id);
-                if (target) region.update(id, { locked: !target.locked });
-              }}
-            />
-          ) : (
-            <DetailPanelEmpty />
+          <div className="hidden md:block">
+            {isLanding ? (
+              <HowItWorksCard />
+            ) : selectedRegion ? (
+              <DetailPanel
+                region={selectedRegion}
+                index={selectedIndex}
+                onChangeReplacement={(id, replacement) => region.update(id, { replacement })}
+                onDelete={(id) => {
+                  region.remove(id);
+                  if (selectedId === id) setSelectedId(null);
+                }}
+                onLockToggle={(id) => {
+                  const target = region.regions.find((r) => r.id === id);
+                  if (target) region.update(id, { locked: !target.locked });
+                }}
+              />
+            ) : (
+              <DetailPanelEmpty />
+            )}
+          </div>
+          {/* Mobile: detail slides up from the bottom as a sheet */}
+          {selectedRegion && (
+            <div className="md:hidden fixed left-0 right-0 bottom-14 z-40 bg-surface-1 border-t border-border max-h-[60vh] overflow-y-auto">
+              <div className="w-6 h-1 rounded-full bg-border-strong mx-auto my-3" aria-hidden />
+              <DetailPanel
+                region={selectedRegion}
+                index={selectedIndex}
+                onChangeReplacement={(id, replacement) => region.update(id, { replacement })}
+                onDelete={(id) => {
+                  region.remove(id);
+                  if (selectedId === id) setSelectedId(null);
+                }}
+                onLockToggle={(id) => {
+                  const target = region.regions.find((r) => r.id === id);
+                  if (target) region.update(id, { locked: !target.locked });
+                }}
+              />
+            </div>
           )}
         </div>
 
