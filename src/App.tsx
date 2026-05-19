@@ -322,6 +322,28 @@ function App() {
                 enabled={enabled}
                 onSelect={setSelectedId}
                 onHoverBox={setHoveredCategory}
+                onBboxChange={(id, bbox) => region.update(id, { bbox })}
+                onDelete={(id) => {
+                  region.remove(id);
+                  if (selectedId === id) setSelectedId(null);
+                }}
+                onCreateAt={(xNorm, yNorm, category) => {
+                  const w = 0.18;
+                  const h = 0.05;
+                  const x = Math.max(0, Math.min(1 - w, xNorm - w / 2));
+                  const y = Math.max(0, Math.min(1 - h, yNorm - h / 2));
+                  const id = `m-${Date.now().toString(36)}`;
+                  region.add({
+                    id,
+                    source: 'manual',
+                    category,
+                    bbox: { x, y, w, h },
+                    text: '',
+                    confidence: 1,
+                    replacement: `[${category}]`,
+                  });
+                  setSelectedId(id);
+                }}
               />
             ) : null}
           </div>
